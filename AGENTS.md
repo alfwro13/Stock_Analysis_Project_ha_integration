@@ -8,7 +8,7 @@ This file guides AI coding agents working in this repository. Read it before mak
 
 A Home Assistant custom integration (HACS-compatible) that connects HA to a self-hosted [Stock Analysis Project](../AGENTS.md) instance — a personal FastAPI portfolio dashboard (the parent repository this integration lives inside, as `Stock_Analysis_Project_ha_integration/`). It polls the main app's own REST API for portfolio totals and market/system status. Unlike the reference `ghostfolio_ha_integration/` in the same parent repo, it has no direct dependency on Yahoo Finance, Ghostfolio, or any other third-party service — all data comes from the one backend.
 
-The full feature description is in [README.md](README.md). The phased build-out plan is in [task_prompt.md](task_prompt.md).
+The full feature description is in [README.md](README.md). The phased build-out plan is in `task_prompt.md` — local-only, gitignored from this repo (see "Repository & CI" below), so that filename won't resolve as a link on GitHub.
 
 ---
 
@@ -16,25 +16,28 @@ The full feature description is in [README.md](README.md). The phased build-out 
 
 ```
 custom_components/stock_analysis_project/
-├── __init__.py        # Coordinator, setup/unload lifecycle
+├── __init__.py        # Coordinator, setup/unload lifecycle, async_prune_orphans()
 ├── api.py             # StockAnalysisAPI client (X-API-Key auth)
 ├── binary_sensor.py   # Server/Yahoo/US-market/UK-market/System Status diagnostic sensors
+├── brand/              # Local HACS brand assets (icon.png / icon@2x.png)
 ├── button.py          # Refresh Data + Prune Orphaned Entities buttons
 ├── config_flow.py     # Setup and reconfigure UI flows
 ├── const.py           # ALL constants live here, plus device_info() helpers
 ├── diagnostics.py      # Redacted config-entry diagnostics download
 ├── manifest.json       # Integration metadata and version
 ├── number.py           # Refresh Interval number entity
-├── sensor.py            # 10 portfolio-total sensors
+├── sensor.py            # 10 static portfolio-total sensors + 12-per-account dynamic sensors
 ├── strings.json         # Translation source of truth (English only — see below)
 ├── switch.py             # Enable Auto Refresh switch
 └── translations/
     └── en.json          # English only — see below
+.github/workflows/        # CI — see "Repository & CI" below
 tests/
 ├── conftest.py           # Fixtures: mock config entry, mock API, sample payloads
 ├── test_config_flow.py
 ├── test_coordinator.py
-└── test_init.py
+├── test_init.py
+└── test_sensor.py
 ```
 
 ---
@@ -74,14 +77,14 @@ This integration exposes three controls that reach into the coordinator's pollin
 **`[NEEDS REVIEW]` coupling to flag on any Home Assistant core upgrade:** `async_set_update_interval()`'s immediate-reschedule behavior relies on two "protected" `DataUpdateCoordinator` internals that are not part of HA's public API — `self._unsub_refresh` and `self._schedule_refresh()`. As of the HA core version this was implemented against (2026.7.0b3), `update_interval`'s setter alone does not cancel/reschedule the pending timer; only `_schedule_refresh()` does, and it's normally only invoked from the coordinator's own refresh-finished path. If a future HA core version renames or restructures these internals, the immediate-reschedule guarantee for both the switch and the number entity could silently stop working (falling back to "takes effect next tick" instead of "takes effect now"). This is already logged in the main app's `audit/audit.md` under the same `[NEEDS REVIEW]` heading — re-verify this coupling (and rerun `tests/test_coordinator.py::test_refresh_interval_change_reschedules`, which is designed to catch a regression here) after any Home Assistant core version bump.
 
 ### Entity Unique IDs
-- **Never change the unique_id format of an existing entity.** The current scheme is `sap_{key}_{entry_id}` (e.g. `sap_portfolio_gain_fx_{entry_id}`, `sap_enable_auto_refresh_{entry_id}`) — see the full list in `__init__.py`'s `async_prune_orphans()`, which doubles as the canonical unique_id registry. Changing this format orphans the entity for every existing user, breaking their dashboards, automations, and history. If a rename is genuinely unavoidable, document it as a breaking change and update `async_prune_orphans()`'s `valid_unique_ids` set in the same change so the old id gets pruned rather than lingering forever.
-- Adding a brand-new entity (Phase 2+) means adding its unique_id to `valid_unique_ids` in the same change — an entity missing from that set gets silently pruned the next time someone presses "Prune Orphaned Entities".
+- **Never change the unique_id format of an existing entity.** The current schemes are `sap_{key}_{entry_id}` for static/singular entities (e.g. `sap_portfolio_gain_fx_{entry_id}`, `sap_enable_auto_refresh_{entry_id}`) and `sap_{key}_{item_id}_{entry_id}` for per-item dynamic entities (e.g. `sap_cash_balance_{account_id}_{entry_id}` — see "Dynamic Per-Item Entity Sets" below) — see the full construction in `__init__.py`'s `async_prune_orphans()`, which doubles as the canonical unique_id registry. Changing either format orphans the entity for every existing user, breaking their dashboards, automations, and history. If a rename is genuinely unavoidable, document it as a breaking change and update `async_prune_orphans()`'s `valid_unique_ids` set in the same change so the old id gets pruned rather than lingering forever.
+- Adding a brand-new static entity means adding its unique_id to `valid_unique_ids` in the same change. A new per-item entity type follows "Dynamic Per-Item Entity Sets" below instead. Either way, an id missing from `valid_unique_ids` gets pruned — see "Config Toggles" below for when prune runs (not just the manual button).
 
 ### Session Lifecycle
 - `StockAnalysisAPI` owns a single `aiohttp.ClientSession`, lazily created in `_get_session()`. It is closed in `async_unload_entry` via `await entry.runtime_data.api.close()`. Do not create additional sessions and do not call `close()` from anywhere else.
 
 ### Extension Points Reserved for Later Phases
-- `const.py` already declares `CONF_SHOW_ACCOUNTS`, `CONF_SHOW_HOLDINGS`, `CONF_SHOW_OTHER_ACCOUNTS` for Phases 2-4. **Phase 1 code must not implement any behavior gated on these keys yet** — they exist purely so `config_flow.py`'s schema doesn't need a breaking rename later. Do not read these keys from `config_entry.data` anywhere in the current Phase 1 platforms.
+- `const.py` declares `CONF_SHOW_HOLDINGS`/`CONF_SHOW_OTHER_ACCOUNTS` for Phases 3-4 — not yet implemented, existing purely so `config_flow.py`'s schema doesn't need a breaking rename later. **Do not implement any behavior gated on these two keys until the relevant phase is actually being built.** `CONF_SHOW_PORTFOLIO_TOTALS` (Phase 1) and `CONF_SHOW_ACCOUNTS` (Phase 2) are already implemented — see "Config Toggles" below for the pattern any new toggle must follow.
 
 ---
 
@@ -92,7 +95,7 @@ This integration exposes three controls that reach into the coordinator's pollin
 - **Do not change existing entity unique_id formats.**
 - **Do not add a second `aiohttp.ClientSession`** — always go through `StockAnalysisAPI._get_session()`.
 - **Do not add German/French/any non-English translation files** — this integration is English-only by design (see above).
-- **Do not implement behavior for `CONF_SHOW_ACCOUNTS`/`CONF_SHOW_HOLDINGS`/`CONF_SHOW_OTHER_ACCOUNTS`** until their respective phase is actually being built.
+- **Do not implement behavior for `CONF_SHOW_HOLDINGS`/`CONF_SHOW_OTHER_ACCOUNTS`** until their respective phase is actually being built. (`CONF_SHOW_PORTFOLIO_TOTALS` and `CONF_SHOW_ACCOUNTS` are already implemented, Phases 1-2.)
 - **Do not mutate `coordinator.auto_refresh_enabled` or `coordinator.update_interval` directly from an entity** — always go through `async_set_auto_refresh_enabled()` / `async_set_update_interval()`, which handle persistence and rescheduling together.
 - **Do not skip the `coordinator.data` null guard** in any new sensor/binary_sensor property.
 - **Do not catch `Exception` silently with `pass`** — at minimum log at debug level with the exception, matching `api.py`'s existing pattern.
@@ -113,8 +116,31 @@ See "Rules — Always Follow These" above. This is a deliberate, explicit diverg
 ### System Status Polarity (Inverted)
 `StockAnalysisSystemStatusSensor` (binary_sensor.py) reports `is_on = not system_ok` — "on" means a problem was detected, matching Home Assistant's convention that a `binary_sensor`'s "on" state should be the notable/alert state (compare to `BinarySensorDeviceClass.PROBLEM` semantics elsewhere in HA, though this entity intentionally uses no `device_class` since it's a bespoke "is anything wrong on the backend" flag rather than any single standard problem category). Do not flip this polarity without updating the README's polarity note in the same change.
 
-### Two Devices, One Config Entry
-Every entity in Phase 1 belongs to exactly one of two devices per config entry — "Stock Analysis Project Portfolio" (portfolio-total sensors + the three refresh controls) or "Stock Analysis Project Diagnostics" (the four read-only diagnostic binary sensors + System Status + Prune Orphaned Entities), linked via `via_device`. When adding a new entity, decide which device it conceptually belongs to using this same split — portfolio data and its controls on one device, passive backend/market health signals on the other — rather than introducing a third device or scattering entities inconsistently.
+### Devices: Two Static + One Dynamic Family, Per Config Entry
+Every static (non-per-item) entity belongs to exactly one of two fixed devices per config entry — "Stock Analysis Project Portfolio" (portfolio-total sensors + the three refresh controls) or "Stock Analysis Project Diagnostics" (the four read-only diagnostic binary sensors + System Status + Prune Orphaned Entities), linked via `via_device` back to the Portfolio device. Phase 2 added a third, *dynamic* device family on top of this — one device per Trading account (built via `account_device_info()` in `const.py`), also `via_device`-linked to the Portfolio device — for the per-account entity sets (see "Dynamic Per-Item Entity Sets" below). When adding a new static entity, decide which of the two fixed devices it conceptually belongs to (portfolio data/controls vs. passive backend/market health signals) rather than introducing a new fixed device. When adding a new per-item entity set (Phase 3 holdings, Phase 4 pension/house), follow the same per-item dynamic-device pattern as accounts rather than lumping items onto one of the two fixed devices.
+
+### Dynamic Per-Item Entity Sets (Phase 2+)
+Phase 2 introduced the integration's first per-item dynamic entity set (per-Trading-account sensors); the same pattern applies to Phase 3 (per-holding) and Phase 4 (Pension/House) if they follow suit.
+
+- **Unique_id scheme:** `sap_{key}_{item_id}_{entry_id}` — the item's own id inserted between the field key and the entry id (Phase 2: `item_id` is the Trading account's DB id, e.g. `sap_cash_balance_{account_id}_{entry_id}`).
+- **Device scheme:** one HA device per item, identifier `sap_{item_type}_{item_id}_{entry_id}` (Phase 2: `sap_account_{account_id}_{entry_id}`), named `"<item name> - Totals"` — the item's own name from the backend, unprefixed — `via_device` linked to the shared Portfolio device. Built through a `const.py` helper (`account_device_info()`), same as the two static devices — never construct the identifiers dict inline in a platform file. Because every per-item entity sets `_attr_has_entity_name = True`, this device name also drives the auto-generated `entity_id` (`sensor.<device_name_slug>_<entity_name_slug>`, e.g. `sensor.isa_totals_1_month_gain`) — there is no separate entity_id scheme to hand-maintain.
+- **Dynamic creation:** a `known_ids: set[str]` built inside `async_setup_entry`, plus a `@callback`-decorated `_update_*_sensors()` closure registered via `config_entry.async_on_unload(coordinator.async_add_listener(...))` and also invoked once immediately after the initial static `async_add_entities(...)` call (covers data already present from the first refresh). Mirrors `ghostfolio_ha_integration/`'s reference pattern in its own `sensor.py`, though no code is shared between the two repos.
+- **Per-item field lookup must key by the item's id, never by list index** — coordinator data list order across refreshes is not guaranteed stable. Every per-item sensor's value/state property scans the latest list and matches on id, defaulting to `{}` if the item is momentarily missing (e.g. deleted mid-session, before the next prune).
+- **Dynamic removal** happens two ways: on-demand via the existing "Prune Orphaned Entities" button, and automatically every time the config entry is set up or reloaded (see "Config Toggles" below) — never via a live listener reacting mid-session to a coordinator update. An item disappearing from a refresh leaves its entities/device in the registry (stale) until one of those two triggers runs.
+
+Cross-reference: `tests/test_sensor.py` (dynamic-entity tests, including a cross-item value-mixup regression test) and `tests/test_init.py::test_prune_orphans_removes_deleted_account_sensors`.
+
+### Config Toggles ("Show ...") Must Gate Fetch + Entities + Prune Together, and Prune Runs on Every Setup
+Every `CONF_SHOW_*` toggle that gates a sensor group must gate three things together, not just entity creation:
+1. The coordinator's `_async_update_data()` fetch for that group — skip the API call entirely, substituting the same empty/None shape its `.get()`-based readers already treat as "no data yet" (e.g. `{}` for portfolio totals, `{"base_currency": None, "accounts": []}` for account metrics).
+2. The corresponding platform's entity construction in `async_setup_entry`.
+3. `async_prune_orphans()`'s `valid_unique_ids` computation for that group's static ids. (Per-item dynamic ids are covered for free, since they're only added to `valid_unique_ids` when present in the — now correctly gated — coordinator data.)
+
+`async_prune_orphans()` is called once inside the module-level `async_setup_entry()` (`__init__.py`), immediately after `coordinator.async_config_entry_first_refresh()` and before `hass.config_entries.async_forward_entry_setups(...)` — and it removes both stale entities *and* devices with no remaining valid entities (an account whose entities are all pruned no longer leaves an empty device behind). Since a Reconfigure submission always reloads the config entry by default (`async_update_reload_and_abort`'s `reload_even_if_entry_is_unchanged=True`), this makes disabling a toggle during Reconfigure take effect immediately — its entities and device are pruned as part of the very reload that applies the new setting — rather than only being cleaned up on a manual "Prune Orphaned Entities" press. Safe to call at this point in setup because prune only ever *removes* pre-existing registry rows and never depends on the current session's entities having been (re-)added yet.
+
+`ghostfolio_ha_integration/` does **not** have this auto-prune-on-setup behavior — checked it as prior art and found the identical gap (its reconfigure flow also just reloads, with `async_prune_orphans()` only ever invoked from its own manual prune button) — so this is this integration's own addition, not adopted from the reference.
+
+Cross-reference: `tests/test_init.py::test_disabling_show_accounts_via_reload_auto_removes_account_sensors` and `::test_disabling_show_portfolio_totals_via_reload_auto_removes_portfolio_sensors`.
 
 ---
 
@@ -123,11 +149,12 @@ Every entity in Phase 1 belongs to exactly one of two devices per config entry �
 - [ ] New constants in `const.py`
 - [ ] Logic in the appropriate platform file (`sensor.py`, `binary_sensor.py`, etc.)
 - [ ] Translation key added to `strings.json` AND `translations/en.json` (no other language files)
-- [ ] If a new config option: add to both `async_step_user` and `async_step_reconfigure` in `config_flow.py`
-- [ ] If a new entity: unique_id follows the pattern `sap_{key}_{entry_id}`, and the id is added to `async_prune_orphans()`'s `valid_unique_ids` set in `__init__.py`
+- [ ] If a new config option: add to both `async_step_user` and `async_step_reconfigure` in `config_flow.py` (both already call the single shared `_build_schema()`, so one edit covers both)
+- [ ] If a new `CONF_SHOW_*` toggle: gate the coordinator fetch, the platform's entity construction, AND `async_prune_orphans()`'s `valid_unique_ids` together — see "Config Toggles" above. A toggle that only gates entity creation leaves stale rows behind when disabled.
+- [ ] If a new static entity: unique_id follows `sap_{key}_{entry_id}`, and the id is added to `async_prune_orphans()`'s `valid_unique_ids` set in `__init__.py`. If a new per-item dynamic entity set: follow "Dynamic Per-Item Entity Sets" above (unique_id/device scheme, `known_ids` + listener, id-based lookup) instead.
 - [ ] `README.md` updated to document the new feature/entity
-- [ ] `task_prompt.md` updated if the change advances or revises one of the phased milestones
-- [ ] Checked against the main app's `AGENTS.md` and the 3 HA-integration-consumed endpoints (see Cross-Reference below) if the change assumes anything about the backend's response shape
+- [ ] `task_prompt.md` updated if the change advances or revises one of the phased milestones — this file is local-only and gitignored from this repo, see "Repository & CI" below
+- [ ] Checked against the main app's `AGENTS.md` and the 4 HA-integration-consumed endpoints (see Cross-Reference below) if the change assumes anything about the backend's response shape
 - [ ] `pytest` run inside this directory and passing (see Testing below)
 
 ---
@@ -146,15 +173,32 @@ pytest
 
 ---
 
+## Repository & CI
+
+As of July 2026 this directory is **also** its own independent git repository, published at https://github.com/alfwro13/Stock_Analysis_Project_ha_integration (branch `main`) — in addition to remaining a subfolder of the main app's own checkout (where it's gitignored, so the main app's own repo never sees these files). Commit and push changes from inside this directory; it has its own remote, separate from the main app's.
+
+CI runs on every push/PR via `.github/workflows/`:
+- `validate.yml` — HACS repository validation (`hacs/action`).
+- `hassfest.yaml` — Home Assistant's own manifest/schema validator.
+- `test.yml` — runs this repo's `pytest` suite (not present in `ghostfolio_ha_integration/`, which has tests but no CI workflow that runs them — added here deliberately).
+- `release.yml` — creates a GitHub Release + zip asset whenever `custom_components/stock_analysis_project/manifest.json`'s `version` changes on a push to `main`. Only bump the version when a phase or fix is genuinely ready to ship, and confirm with the operator first unless they've already asked for it directly.
+
+A green local `pytest` run does not guarantee CI passes — `validate.yml` also checks repository-level GitHub metadata (description, topics, brand assets at `custom_components/stock_analysis_project/brand/icon.png`) that local tests can't see. After pushing, check `gh run list --repo alfwro13/Stock_Analysis_Project_ha_integration` (or the Actions tab) before considering a change done.
+
+`task_prompt.md` (this directory's own phase-by-phase implementation notes) is intentionally gitignored from this repo — it's an internal AI-agent working doc, not something that belongs in a public HACS repo (same treatment as `audit/ha_integration_task_prompt.md` in the main app's own repo). It still exists locally and should still be read/updated per the checklist above; it just never gets committed here.
+
+---
+
 ## Cross-Reference to the Main App
 
-This integration is a pure API consumer of the parent Stock Analysis Project app. It currently depends on exactly 3 backend endpoints:
+This integration is a pure API consumer of the parent Stock Analysis Project app. It currently depends on exactly 4 backend endpoints:
 
 - `GET /api/accounts/portfolio-totals`
 - `POST /api/accounts/refresh-now`
 - `GET /api/system/market-status`
+- `GET /api/accounts/list-with-metrics` (Phase 2 — per-Trading-account metrics)
 
-The main app's own `AGENTS.md` (`../AGENTS.md`) documents the rule that any change to these endpoints' response schema, auth, or behavior must be checked against this integration in the same change — additive-only field changes are safe (this integration's `.get()`-based access degrades gracefully), but renames or removals require updating this integration in lockstep. If you're working from the main app's side and touch `accounts_engine.py`'s `portfolio_totals()`/`portfolio_gain_fx_decomposition()`/`portfolio_twr_fx()`/`portfolio_twr_ex_fx()`, or `api_routes_accounts.py`'s `portfolio-totals`/`refresh-now` routes, or `api_routes_system.py`'s `market-status` route — re-read this file and `task_prompt.md` before assuming the integration side is unaffected.
+The main app's own `AGENTS.md` (`../AGENTS.md`) documents the rule that any change to these endpoints' response schema, auth, or behavior must be checked against this integration in the same change — additive-only field changes are safe (this integration's `.get()`-based access degrades gracefully), but renames or removals require updating this integration in lockstep. If you're working from the main app's side and touch `accounts_engine.py`'s `portfolio_totals()`/`portfolio_gain_fx_decomposition()`/`portfolio_twr_fx()`/`portfolio_twr_ex_fx()`/`account_metrics_list()`, or `api_routes_accounts.py`'s `portfolio-totals`/`refresh-now`/`list-with-metrics` routes, or `api_routes_system.py`'s `market-status` route — re-read this file and `task_prompt.md` before assuming the integration side is unaffected.
 
 ---
 
