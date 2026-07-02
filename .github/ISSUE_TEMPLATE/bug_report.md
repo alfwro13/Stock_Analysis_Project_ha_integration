@@ -1,0 +1,44 @@
+---
+name: Bug report
+about: Create a report to help us improve
+title: ''
+labels: ''
+assignees: ''
+
+---
+
+## ✅ Pre-submission Checklist
+*Please check all applicable boxes before submitting your issue:*
+- [ ] I have read the **Support & Disclaimer** section in the README.
+- [ ] I have consulted my preferred AI (e.g., ChatGPT, Claude, Gemini) with my error logs and YAML configurations to try and resolve this issue myself.
+- [ ] I am running the latest version of the integration.
+
+**Describe the bug**
+A clear and concise description of what the bug is.
+
+**To Reproduce**
+Steps to reproduce the behavior:
+1. Go to '...'
+2. Click on '....'
+3. Scroll down to '....'
+4. See error
+
+**Expected behavior**
+A clear and concise description of what you expected to happen.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+## ⚙️ Environment
+Please provide details about your setup:
+- **Home Assistant Version:** (e.g., 2024.5.1)
+- **Integration Version:** (e.g., v0.2.0)
+- **Stock Analysis Project Backend:** confirm you're on the latest commit of the main app
+- **Installation Method:** [e.g., HACS, Manual]
+
+## 📋 Error Logs
+If applicable, add the relevant errors from your Home Assistant logs (`Settings` -> `System` -> `Logs`).
+
+```text
+Please paste your logs here. Do not use screenshots for logs.
+```

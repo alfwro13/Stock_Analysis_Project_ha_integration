@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'custom_components/stock_analysis_project/manifest.json'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from manifest
+        id: version
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('custom_components/stock_analysis_project/manifest.json'))['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if version contains beta, alpha, or rc to determine if it's a pre-release
+          if [[ "$VERSION" =~ (beta|alpha|rc) ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if tag exists
+        id: tag_check
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get previous version
+        id: previous_version
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "tag=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          if [ -n "${{ steps.previous_version.outputs.tag }}" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" ${{ steps.previous_version.outputs.tag }}..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s")
+          fi
+
+          # Create multiline output
+          {
+            echo "changes<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Zip integration
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          cd custom_components/stock_analysis_project
+          zip -r ../../stock_analysis_project.zip ./*
+          cd ../..
+
+      - name: Create Release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Changes in ${{ steps.version.outputs.version }}
+
+            ${{ steps.changelog.outputs.changes }}
+
+
+            ## What's Changed
+            Full Changelog: https://github.com/alfwro13/Stock_Analysis_Project_ha_integration/compare/${{ steps.previous_version.outputs.tag }}...${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          files: stock_analysis_project.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output result
+        run: |
+          if [ "${{ steps.tag_check.outputs.exists }}" == "true" ]; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists, skipping release creation"
+          else
+            echo "Created release for version ${{ steps.version.outputs.version }}"
+          fi
