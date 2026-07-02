@@ -1,6 +1,28 @@
 Read AGENTS.md (this directory) in full before writing a single line of code. Read the main app's own AGENTS.md (`../AGENTS.md`) if the change touches backend endpoints or `accounts_engine.py`.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REPOSITORY STATUS (as of July 2026)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This directory is now a real, independent git repository pushed to
+https://github.com/alfwro13/Stock_Analysis_Project_ha_integration (branch `main`), with its
+own CI: `.github/workflows/validate.yml` (HACS), `hassfest.yaml`, `test.yml` (pytest), and
+`release.yml` (auto-creates a GitHub Release + zip whenever
+`custom_components/stock_analysis_project/manifest.json`'s `version` changes on a push to
+`main`). This is earlier than the original plan ("gets split out into its own git repo only
+once all 4 phases are complete") — the operator asked for it explicitly, to test via HACS
+against a real Home Assistant instance while Phases 3-4 are still in progress. It's still a
+subfolder of the main app's own checkout (and still gitignored from the main app's own repo)
+— this is a *second*, independent git repo rooted at this same directory, not a replacement
+for the main app's own version control. See "PUSHING TO GITHUB" under WHEN DONE below.
+
+Local brand assets live at `custom_components/stock_analysis_project/brand/icon.png` /
+`icon@2x.png` (the main app's `assets/logo_small.png` Quantamental "Q" logo) — this satisfies
+HACS validation's brand-assets check without a submission to the separate
+`home-assistant/brands` repository. The GitHub repo's description and topics are also set
+(via `gh repo edit`) — HACS validation checks those too.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RULES — apply these to every line you write or touch
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -201,3 +223,17 @@ Report:
   - Documentation updated (README.md / AGENTS.md / this file).
   - Any cross-repo impact: if backend endpoints changed, confirm the main app's own
     AGENTS.md/api_reference.md were updated in the same task and note it here.
+
+PUSHING TO GITHUB (see REPOSITORY STATUS above)
+  - Commit changes from inside this directory (`Stock_Analysis_Project_ha_integration/` is its
+    own separate git repo — do not run these from the main app's repo root) and
+    `git push origin main`.
+  - After pushing, check `gh run list --repo alfwro13/Stock_Analysis_Project_ha_integration`
+    (or the Actions tab) and confirm Validate, Validate with hassfest, and Tests all pass on
+    the new commit before considering the task done. A green local `pytest` run does not
+    guarantee HACS/hassfest validation also passes — they check things local tests can't (repo
+    metadata, `hacs.json`/`manifest.json` schema conformance, brand assets).
+  - Only bump `custom_components/stock_analysis_project/manifest.json`'s `version` (which
+    triggers `release.yml` and creates a GitHub Release) when a phase or fix is genuinely ready
+    to ship — not on every small commit. Confirm with the operator before bumping unless
+    they've already asked for it directly.
