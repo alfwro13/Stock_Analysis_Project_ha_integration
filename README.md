@@ -1,14 +1,18 @@
+<div align="center">
+   <img src="custom_components/stock_analysis_project/brand/icon.png" alt="Stock Analysis Project Logo" width="120" height="120">
+</div>
+
 # Stock Analysis Project (Home Assistant Integration)
 
-A Home Assistant Custom Component (HACS integration) for monitoring a self-hosted [Stock Analysis Project](https://github.com/awroblew/Stock_Analysis_Project) instance — a personal FastAPI portfolio dashboard. It pulls live portfolio totals, gain/return figures, and system/market health straight into Home Assistant so you can build dashboards and automations around your own portfolio, without needing Ghostfolio.
+A Home Assistant Custom Component (HACS integration) for monitoring a self-hosted [Stock Analysis Project](https://github.com/alfwro13/Stock_Analysis_Project) instance — a personal FastAPI portfolio dashboard. It pulls live portfolio totals, gain/return figures, and system/market health straight into Home Assistant so you can build dashboards and automations around your own portfolio, without needing Ghostfolio.
 
 This is a companion project to the main Stock Analysis Project app and talks only to that app's own API — it has no connection to Ghostfolio, Yahoo Finance, or any other third-party service directly.
 
-**Status:** Phase 1 (portfolio totals, auto-refresh controls, diagnostics). Individual trading accounts, per-holding sensors, and Pension/House account sensors are planned but not yet implemented — see [Planned: Phases 2-4](#planned-phases-2-4-not-yet-implemented) below.
+**Status:** Phases 1-2 shipped (portfolio totals, auto-refresh controls, diagnostics, per-Trading-account sensors). Per-holding sensors and Pension/House account sensors are planned but not yet implemented — see [Planned: Phases 3-4](#planned-phases-3-4-not-yet-implemented) below.
 
 ## Prerequisites
 
-- A running instance of the main [Stock Analysis Project](https://github.com/awroblew/Stock_Analysis_Project) app, reachable from your Home Assistant instance.
+- A running instance of the main [Stock Analysis Project](https://github.com/alfwro13/Stock_Analysis_Project) app, reachable from your Home Assistant instance.
 - An API key generated from that app: **Settings → User Account → API Key → Generate New API Key**. This key is sent as an `X-API-Key` header on every request; generating a new key immediately invalidates the old one, so update this integration's configuration if you regenerate it.
 - At least one **Trading** account configured in the main app's Built-in Accounts (`/accounts`) — portfolio totals aggregate across Trading accounts only. With zero Trading accounts configured, the sensors simply report zero/unavailable rather than erroring.
 
