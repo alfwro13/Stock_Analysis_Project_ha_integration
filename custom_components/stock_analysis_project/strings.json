@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Stock Analysis Project",
+        "description": "Enter your Stock Analysis Project instance details",
+        "data": {
+          "base_url": "Base URL",
+          "api_key": "API Key",
+          "verify_ssl": "Verify SSL Certificate",
+          "update_interval": "Update Interval"
+        },
+        "data_description": {
+          "base_url": "The URL of your Stock Analysis Project instance",
+          "api_key": "Your Stock Analysis Project API key for authentication",
+          "verify_ssl": "Disable this if you're using corporate proxies like Zscaler that intercept SSL certificates",
+          "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Stock Analysis Project",
+        "description": "Update your Stock Analysis Project configuration",
+        "data": {
+          "base_url": "Base URL",
+          "api_key": "API Key",
+          "verify_ssl": "Verify SSL Certificate",
+          "update_interval": "Update Interval"
+        },
+        "data_description": {
+          "base_url": "The URL of your Stock Analysis Project instance",
+          "api_key": "Your Stock Analysis Project API key for authentication",
+          "verify_ssl": "Disable this if you're using corporate proxies like Zscaler that intercept SSL certificates",
+          "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Stock Analysis Project",
+      "auth_failed": "Authentication failed. Please check your API key.",
+      "invalid_url": "Base URL must start with http:// or https://"
+    },
+    "abort": {
+      "already_configured": "Stock Analysis Project instance is already configured",
+      "reconfigure_successful": "Configuration updated successfully"
+    }
+  }
+}
