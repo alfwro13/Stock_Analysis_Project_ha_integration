@@ -105,9 +105,9 @@ async def test_refresh_interval_change_reschedules(
     """Changing update_interval via async_set_update_interval reschedules the timer.
 
     DataUpdateCoordinator's update_interval setter alone does NOT cancel/reschedule
-    the pending timer -- _schedule_refresh() only picks up the new interval the next
-    time it runs. async_set_update_interval() must therefore explicitly cancel and
-    re-run _schedule_refresh() so the new cadence takes effect immediately.
+    the pending timer -- but requesting an immediate refresh does: _async_refresh()
+    unsubscribes the old timer at entry and re-arms it via _schedule_refresh() in its
+    finally block, picking up whatever interval is set by then.
     """
     await coordinator.async_refresh()
     assert coordinator.update_interval == timedelta(minutes=15)

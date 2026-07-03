@@ -125,12 +125,14 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             await self.async_request_refresh()
 
     async def async_set_update_interval(self, minutes: int) -> None:
-        """Change the polling interval at runtime and reschedule immediately."""
+        """Change the polling interval at runtime and reschedule immediately.
+
+        async_request_refresh() alone is sufficient: DataUpdateCoordinator._async_refresh()
+        unsubscribes the pending timer at its own entry and re-arms it via _schedule_refresh()
+        in its finally block once this refresh completes, using whatever update_interval is
+        set by then — no need to poke _unsub_refresh/_schedule_refresh directly here.
+        """
         self.update_interval = timedelta(minutes=minutes)
-        if self._unsub_refresh:
-            self._unsub_refresh()
-            self._unsub_refresh = None
-        self._schedule_refresh()
         await self.async_request_refresh()
 
     async def _async_update_data(self) -> dict:
