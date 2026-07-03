@@ -1,5 +1,5 @@
 <div align="center">
-   <img src="custom_components/stock_analysis_project/brand/icon.png" alt="Stock Analysis Project Logo" width="120" height="120">
+   <img src="https://raw.githubusercontent.com/alfwro13/Stock_Analysis_Project_ha_integration/main/custom_components/stock_analysis_project/brand/icon.png" alt="Stock Analysis Project Logo" width="120" height="120">
 </div>
 
 # Stock Analysis Project (Home Assistant Integration)
