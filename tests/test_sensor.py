@@ -15,6 +15,8 @@ from .conftest import (
     SAMPLE_CONFIG,
     SAMPLE_HOLDINGS,
     SAMPLE_HOLDINGS_EMPTY,
+    SAMPLE_OTHER_ACCOUNTS,
+    SAMPLE_OTHER_ACCOUNTS_EMPTY,
 )
 
 _ACCOUNT_KEYS = (
@@ -334,3 +336,112 @@ async def test_show_holdings_disabled_skips_holdings_fetch_and_entities(
 
     holding_entities = _holding_entities(registry, entry.entry_id, SAMPLE_HOLDINGS["holdings"])
     assert len(holding_entities) == 0
+
+
+def _other_account_entities(registry: er.EntityRegistry, entry_id: str) -> list[er.RegistryEntry]:
+    """Return only the per-other-account sensor entities."""
+    return [
+        e
+        for e in er.async_entries_for_config_entry(registry, entry_id)
+        if e.domain == "sensor" and e.unique_id.startswith("sap_other_account_value_")
+    ]
+
+
+async def test_two_other_accounts_create_2_sensors_on_shared_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Both sample Pension/House accounts create one sensor each, sharing one "Other Accounts"
+    device rather than getting one device per account (unlike Phase 2's account devices)."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    other_entities = _other_account_entities(registry, entry.entry_id)
+    assert len(other_entities) == 2
+
+    device = device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_other_accounts_{entry.entry_id}")}
+    )
+    assert device is not None
+    assert device.name == "Other Accounts"
+    for entity in other_entities:
+        assert entity.device_id == device.id
+
+
+async def test_other_account_sensor_entity_id_derived_from_account_name_no_device_prefix(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Unlike every other entity in this integration, the Other Accounts sensor explicitly sets
+    entity_id in __init__ rather than relying on has_entity_name + device-name derivation —
+    matching the operator's explicit spec (sensor.<account_name_slug>, no device-name prefix)."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    pension_row, house_row = SAMPLE_OTHER_ACCOUNTS["accounts"]
+    pension_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_other_account_value_{pension_row['account_id']}_{entry.entry_id}"
+    )
+    house_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_other_account_value_{house_row['account_id']}_{entry.entry_id}"
+    )
+
+    assert pension_entity.entity_id == "sensor.aviva_pension"
+    assert house_entity.entity_id == "sensor.house_alicia_avenue"
+
+    pension_state = hass.states.get(pension_entity.entity_id)
+    assert pension_state is not None
+    assert pension_state.name == "Other Accounts Aviva Pension"
+
+
+async def test_other_account_sensor_value_matches_own_account_not_other(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A sensor's value/attributes match its own account, not the other account's data."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    pension_row, house_row = SAMPLE_OTHER_ACCOUNTS["accounts"]
+    assert pension_row["current_value"] != house_row["current_value"]
+
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_other_account_value_{pension_row['account_id']}_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert state is not None
+    assert float(state.state) == pension_row["current_value"]
+    assert float(state.state) != house_row["current_value"]
+    assert state.attributes.get("account_type") == "Pension"
+    assert state.attributes.get("performance_1m") == pension_row["performance"]["1m"]
+    assert state.attributes.get("performance_ytd") == pension_row["performance"]["ytd"]
+    assert state.attributes.get("performance_1y") == pension_row["performance"]["1y"]
+    assert state.attributes.get("last_updated") == pension_row["last_updated"]
+
+
+async def test_zero_other_accounts_creates_no_other_account_sensors(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """An empty other-accounts list creates zero sensors without raising."""
+    mock_api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS_EMPTY)
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    assert _other_account_entities(registry, entry.entry_id) == []
+
+
+async def test_show_other_accounts_disabled_skips_fetch_and_entities(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """CONF_SHOW_OTHER_ACCOUNTS=False means the coordinator never awaits get_other_accounts and
+    creates no entities."""
+    data = dict(SAMPLE_CONFIG, show_other_accounts=False)
+    entry = await _setup(hass, mock_api, data=data)
+    registry = er.async_get(hass)
+
+    mock_api.get_other_accounts.assert_not_awaited()
+    assert _other_account_entities(registry, entry.entry_id) == []

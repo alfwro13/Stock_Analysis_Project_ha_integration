@@ -13,14 +13,17 @@ from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from . import StockAnalysisConfigEntry, StockAnalysisDataUpdateCoordinator
 from .const import (
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
+    CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
     account_holdings_device_info,
+    other_accounts_device_info,
     portfolio_device_info,
 )
 
@@ -144,6 +147,30 @@ async def async_setup_entry(
 
     config_entry.async_on_unload(coordinator.async_add_listener(_update_holding_sensors))
     _update_holding_sensors()
+
+    known_other_account_ids: set[str] = set()
+
+    @callback
+    def _update_other_account_sensors() -> None:
+        """Add a sensor for any Pension/House account not yet represented as an entity."""
+        if not config_entry.data.get(CONF_SHOW_OTHER_ACCOUNTS, True):
+            return
+        if not coordinator.data:
+            return
+        accounts = coordinator.data.get("other_accounts", {}).get("accounts", []) or []
+        new_entities: list[SensorEntity] = []
+        for acc in accounts:
+            unique_id = f"sap_other_account_value_{acc['account_id']}_{config_entry.entry_id}"
+            if unique_id not in known_other_account_ids:
+                known_other_account_ids.add(unique_id)
+                new_entities.append(
+                    StockAnalysisOtherAccountSensor(coordinator, config_entry, acc["account_id"], acc["name"])
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(_update_other_account_sensors))
+    _update_other_account_sensors()
 
 
 class StockAnalysisBaseSensor(CoordinatorEntity, SensorEntity):
@@ -353,4 +380,74 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
             "trend_50d": h.get("trend_50d"),
             "trend_200d": h.get("trend_200d"),
             "next_earnings_date": h.get("next_earnings_date"),
+        }
+
+
+class StockAnalysisOtherAccountSensor(CoordinatorEntity, SensorEntity):
+    """One sensor per Pension/House account, on the shared "Other Accounts" device. Unlike
+    every other entity in this integration, this one explicitly sets `entity_id` (rather than
+    relying on has_entity_name + device name derivation) — the operator wants the entity_id
+    derived straight from the account name with no device-name prefix (e.g. "Aviva Pension" ->
+    sensor.aviva_pension). Setting has_entity_name=False alone does NOT achieve this: Home
+    Assistant's entity registry still joins the device name into the suggested entity_id
+    whenever `_attr_name` is set, regardless of has_entity_name — only an explicitly assigned
+    `entity_id` bypasses that derivation entirely."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: StockAnalysisDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        account_id: int,
+        account_name: str,
+    ) -> None:
+        """Initialize the per-other-account sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._account_id = account_id
+        self._attr_name = account_name
+        self._attr_unique_id = f"sap_other_account_value_{account_id}_{config_entry.entry_id}"
+        self._attr_device_info = other_accounts_device_info(config_entry)
+        self.entity_id = f"sensor.{slugify(account_name)}"
+
+    @property
+    def _account(self) -> dict[str, Any]:
+        """Return this sensor's account row from the latest fetch, or {} if not found yet."""
+        if not self.coordinator.data:
+            return {}
+        accounts = self.coordinator.data.get("other_accounts", {}).get("accounts", []) or []
+        for row in accounts:
+            if row.get("account_id") == self._account_id:
+                return row
+        return {}
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the account's current value."""
+        return self._account.get("current_value")
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return the portfolio's base currency."""
+        if not self.coordinator.data:
+            return "GBP"
+        return self.coordinator.data.get("other_accounts", {}).get("base_currency") or "GBP"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return account type, native currency, performance %, and last scrape date."""
+        acc = self._account
+        if not acc:
+            return {}
+        performance = acc.get("performance") or {}
+        return {
+            "account_type": acc.get("account_type"),
+            "currency": acc.get("currency"),
+            "performance_1m": performance.get("1m"),
+            "performance_ytd": performance.get("ytd"),
+            "performance_1y": performance.get("1y"),
+            "last_updated": acc.get("last_updated"),
         }

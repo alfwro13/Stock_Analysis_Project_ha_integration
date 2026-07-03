@@ -24,7 +24,9 @@ from .const import (
     CONF_BASE_URL,
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
+    CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
+    CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED,
     CONF_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
     DEFAULT_NAME,
@@ -49,6 +51,8 @@ def _build_schema() -> vol.Schema:
             vol.Optional(CONF_SHOW_PORTFOLIO_TOTALS, default=True): BooleanSelector(),
             vol.Optional(CONF_SHOW_ACCOUNTS, default=True): BooleanSelector(),
             vol.Optional(CONF_SHOW_HOLDINGS, default=True): BooleanSelector(),
+            vol.Optional(CONF_SHOW_OTHER_ACCOUNTS, default=True): BooleanSelector(),
+            vol.Optional(CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, default=True): BooleanSelector(),
             vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): NumberSelector(
                 NumberSelectorConfig(
                     mode=NumberSelectorMode.BOX,

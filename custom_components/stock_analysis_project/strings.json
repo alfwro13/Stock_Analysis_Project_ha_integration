@@ -10,6 +10,9 @@
           "verify_ssl": "Verify SSL Certificate",
           "show_portfolio_totals": "Show Portfolio Totals",
           "show_accounts": "Show Account Totals",
+          "show_holdings": "Show Holdings",
+          "show_other_accounts": "Show Other Accounts",
+          "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
         "data_description": {
@@ -18,6 +21,9 @@
           "verify_ssl": "Disable this if you're using corporate proxies like Zscaler that intercept SSL certificates",
           "show_portfolio_totals": "Create the portfolio-wide total sensors (cost, value, gain, dividends, TWR).",
           "show_accounts": "Create a separate sensor set (cash balance, gains, P&L, dividends, MWRR) for each Trading account.",
+          "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
+          "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
+          "skip_refresh_when_markets_closed": "Skip re-fetching portfolio/account/holdings data while both UK and US markets are closed, reusing the last-known values instead. Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }
       },
@@ -30,6 +36,9 @@
           "verify_ssl": "Verify SSL Certificate",
           "show_portfolio_totals": "Show Portfolio Totals",
           "show_accounts": "Show Account Totals",
+          "show_holdings": "Show Holdings",
+          "show_other_accounts": "Show Other Accounts",
+          "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
         "data_description": {
@@ -38,6 +47,9 @@
           "verify_ssl": "Disable this if you're using corporate proxies like Zscaler that intercept SSL certificates",
           "show_portfolio_totals": "Create the portfolio-wide total sensors (cost, value, gain, dividends, TWR).",
           "show_accounts": "Create a separate sensor set (cash balance, gains, P&L, dividends, MWRR) for each Trading account.",
+          "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
+          "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
+          "skip_refresh_when_markets_closed": "Skip re-fetching portfolio/account/holdings data while both UK and US markets are closed, reusing the last-known values instead. Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }
       }

@@ -91,7 +91,7 @@ async def test_platform_entity_counts(hass: HomeAssistant, mock_api) -> None:
     for e in entries:
         by_platform[e.domain] = by_platform.get(e.domain, 0) + 1
 
-    assert by_platform.get("sensor") == 37  # 10 portfolio + 24 account (2x12) + 3 holdings
+    assert by_platform.get("sensor") == 39  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts
     assert by_platform.get("binary_sensor") == 5
     assert by_platform.get("switch") == 1
     assert by_platform.get("number") == 7  # 1 refresh interval + 3 holdings x 2 limit numbers
@@ -418,3 +418,84 @@ async def test_disabling_show_holdings_via_reload_auto_removes_holding_entities(
         assert device_registry.async_get_device(
             identifiers={(DOMAIN, f"sap_account_holdings_{account_id}_{entry.entry_id}")}
         ) is None
+
+
+async def test_prune_orphans_removes_deleted_other_account_entity_keeps_device_with_sibling(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """After one Pension/House account disappears from a refresh, prune removes its own sensor,
+    but the shared "Other Accounts" device stays — the sibling account still has a valid entity
+    referencing it."""
+    from unittest.mock import AsyncMock
+
+    from .conftest import SAMPLE_OTHER_ACCOUNTS
+
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    pension_row, house_row = SAMPLE_OTHER_ACCOUNTS["accounts"]
+
+    mock_api.get_other_accounts = AsyncMock(
+        return_value={"status": "success", "base_currency": "GBP", "accounts": [pension_row]}
+    )
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    await coordinator.async_prune_orphans()
+    await hass.async_block_till_done()
+
+    registered_ids = {
+        e.unique_id for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
+    assert f"sap_other_account_value_{pension_row['account_id']}_{entry.entry_id}" in registered_ids
+    assert f"sap_other_account_value_{house_row['account_id']}_{entry.entry_id}" not in registered_ids
+
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_other_accounts_{entry.entry_id}")}
+    ) is not None, "Other Accounts device must survive — the Pension account still lives on it"
+
+
+async def test_disabling_show_other_accounts_via_reload_auto_removes_entities_and_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Same auto-prune-on-reload behavior for the Show Other Accounts toggle: disabling it
+    removes every Other Accounts sensor and the shared device itself, since none of its
+    siblings survive either."""
+    from .conftest import SAMPLE_OTHER_ACCOUNTS
+
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    other_entities_before = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith("sap_other_account_value_")
+    ]
+    assert len(other_entities_before) == 2
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_other_accounts_{entry.entry_id}")}
+    ) is not None
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "show_other_accounts": False})
+    with patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api,
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    other_entities_after = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith("sap_other_account_value_")
+    ]
+    assert len(other_entities_after) == 0
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_other_accounts_{entry.entry_id}")}
+    ) is None
+
+    # Unrelated devices are unaffected.
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_portfolio_{entry.entry_id}")}
+    ) is not None

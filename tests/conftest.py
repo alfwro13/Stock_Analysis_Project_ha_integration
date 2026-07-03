@@ -180,6 +180,41 @@ SAMPLE_HOLDINGS = {
 
 SAMPLE_HOLDINGS_EMPTY = {"status": "success", "base_currency": "GBP", "holdings": []}
 
+SAMPLE_MARKET_STATUS_CLOSED = {
+    "status": "success",
+    "us_market_open": False,
+    "uk_market_open": False,
+    "yahoo_ok": True,
+    "system_ok": True,
+}
+
+SAMPLE_OTHER_ACCOUNTS = {
+    "status": "success",
+    "base_currency": "GBP",
+    "accounts": [
+        {
+            "account_id": 21,
+            "name": "Aviva Pension",
+            "account_type": "Pension",
+            "currency": "GBP",
+            "current_value": 84210.55,
+            "performance": {"1m": 1.8, "ytd": 6.4, "1y": 11.2},
+            "last_updated": "2026-07-02",
+        },
+        {
+            "account_id": 22,
+            "name": "House - Alicia Avenue",
+            "account_type": "House",
+            "currency": "GBP",
+            "current_value": 350000.0,
+            "performance": {"1m": None, "ytd": 0.0, "1y": 2.9},
+            "last_updated": "2026-06-01",
+        },
+    ],
+}
+
+SAMPLE_OTHER_ACCOUNTS_EMPTY = {"status": "success", "base_currency": "GBP", "accounts": []}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -205,6 +240,7 @@ def mock_api():
     api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS)
     api.get_account_metrics = AsyncMock(return_value=SAMPLE_ACCOUNT_METRICS)
     api.get_holdings = AsyncMock(return_value=SAMPLE_HOLDINGS)
+    api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS)
     api.set_holding_price_limit = AsyncMock(return_value={"status": "success"})
     api.trigger_refresh_now = AsyncMock(return_value={"status": "success"})
     api.close = AsyncMock()

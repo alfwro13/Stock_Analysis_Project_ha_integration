@@ -10,10 +10,8 @@ CONF_UPDATE_INTERVAL = "update_interval"
 CONF_SHOW_PORTFOLIO_TOTALS = "show_portfolio_totals"
 CONF_SHOW_ACCOUNTS = "show_accounts"
 CONF_SHOW_HOLDINGS = "show_holdings"
-
-# Extension point for Phase 4 (pension/house accounts) — declared now so config_flow's schema
-# won't need a breaking rename later. Do NOT implement any behavior for this key yet.
 CONF_SHOW_OTHER_ACCOUNTS = "show_other_accounts"
+CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED = "skip_refresh_when_markets_closed"
 
 # Default values
 DEFAULT_NAME = "Stock Analysis Project"
@@ -52,6 +50,20 @@ def account_device_info(config_entry, account_id: int, account_name: str) -> dic
         "name": f"{account_name} - Totals",
         "manufacturer": "Stock Analysis Project",
         "model": "Trading Account",
+        "via_device": (DOMAIN, f"sap_portfolio_{config_entry.entry_id}"),
+    }
+
+
+def other_accounts_device_info(config_entry) -> dict:
+    """Return the shared device_info dict for every Pension/House account's sensor — a single
+    device for the whole heterogeneous group (unlike account_device_info's one-per-item scheme
+    or account_holdings_device_info's one-per-parent scheme), since these accounts have no
+    natural per-item grouping of their own beyond "not a Trading account"."""
+    return {
+        "identifiers": {(DOMAIN, f"sap_other_accounts_{config_entry.entry_id}")},
+        "name": "Other Accounts",
+        "manufacturer": "Stock Analysis Project",
+        "model": "Pension / House Accounts",
         "via_device": (DOMAIN, f"sap_portfolio_{config_entry.entry_id}"),
     }
 

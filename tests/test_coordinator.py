@@ -17,6 +17,7 @@ from custom_components.stock_analysis_project.const import DOMAIN
 from .conftest import (
     SAMPLE_CONFIG,
     SAMPLE_MARKET_STATUS,
+    SAMPLE_MARKET_STATUS_CLOSED,
     SAMPLE_PORTFOLIO_TOTALS,
     SAMPLE_PORTFOLIO_TOTALS_EMPTY,
 )
@@ -196,6 +197,93 @@ async def test_show_holdings_disabled_skips_fetch(hass: HomeAssistant, mock_api)
     assert coordinator.last_update_success is True
     assert coordinator.data["holdings"] == {"base_currency": None, "holdings": []}
     mock_api.get_holdings.assert_not_awaited()
+
+    await coordinator.async_shutdown()
+
+
+async def test_first_refresh_always_fetches_even_if_markets_closed(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """There's no prior data to reuse on the very first refresh, so it always fetches
+    everything regardless of market status."""
+    mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
+
+    await coordinator.async_refresh()
+
+    mock_api.get_portfolio_totals.assert_awaited_once()
+    mock_api.get_account_metrics.assert_awaited_once()
+    mock_api.get_holdings.assert_awaited_once()
+    mock_api.get_other_accounts.assert_awaited_once()
+
+
+async def test_markets_closed_skips_trading_fetches_on_second_refresh(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """Once there's prior data, a refresh with both markets closed reuses the previous
+    portfolio/account/holdings data instead of re-fetching it — prices can't have changed.
+    Other Accounts is unaffected, since it isn't tied to stock market hours."""
+    await coordinator.async_refresh()
+    mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
+
+    portfolio_calls_before = mock_api.get_portfolio_totals.call_count
+    account_calls_before = mock_api.get_account_metrics.call_count
+    holdings_calls_before = mock_api.get_holdings.call_count
+    other_calls_before = mock_api.get_other_accounts.call_count
+
+    await coordinator.async_refresh()
+
+    assert mock_api.get_portfolio_totals.call_count == portfolio_calls_before
+    assert mock_api.get_account_metrics.call_count == account_calls_before
+    assert mock_api.get_holdings.call_count == holdings_calls_before
+    assert mock_api.get_other_accounts.call_count == other_calls_before + 1
+    assert coordinator.data["portfolio_totals"] == SAMPLE_PORTFOLIO_TOTALS
+
+
+async def test_markets_open_always_fetches_trading_data(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """With at least one market open (the default SAMPLE_MARKET_STATUS fixture), a second
+    refresh still re-fetches the trading-related data."""
+    await coordinator.async_refresh()
+    calls_before = mock_api.get_portfolio_totals.call_count
+
+    await coordinator.async_refresh()
+
+    assert mock_api.get_portfolio_totals.call_count > calls_before
+
+
+async def test_skip_toggle_disabled_always_fetches_regardless_of_market_status(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """skip_refresh_when_markets_closed=False keeps fetching every tick even with both markets
+    closed."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**SAMPLE_CONFIG, "skip_refresh_when_markets_closed": False}
+    )
+    entry.add_to_hass(hass)
+    coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+    mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
+
+    await coordinator.async_refresh()
+    calls_before = mock_api.get_portfolio_totals.call_count
+
+    await coordinator.async_refresh()
+
+    assert mock_api.get_portfolio_totals.call_count > calls_before
+    await coordinator.async_shutdown()
+
+
+async def test_show_other_accounts_disabled_skips_fetch(hass: HomeAssistant, mock_api) -> None:
+    """CONF_SHOW_OTHER_ACCOUNTS=False means the coordinator never awaits get_other_accounts."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**SAMPLE_CONFIG, "show_other_accounts": False})
+    entry.add_to_hass(hass)
+    coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["other_accounts"] == {"base_currency": None, "accounts": []}
+    mock_api.get_other_accounts.assert_not_awaited()
 
     await coordinator.async_shutdown()
 

@@ -122,6 +122,10 @@ class StockAnalysisAPI:
         """Fetch per-holding metrics across every Trading account (Phase 3)."""
         return await self._get("/api/accounts/holdings-list")
 
+    async def get_other_accounts(self) -> dict[str, Any]:
+        """Fetch current value + basic performance for every Pension/House account (Phase 4)."""
+        return await self._get("/api/accounts/other-accounts-list")
+
     async def set_holding_price_limit(
         self, account_id: int, ticker: str, low_limit: float | None = None, high_limit: float | None = None
     ) -> dict[str, Any]:

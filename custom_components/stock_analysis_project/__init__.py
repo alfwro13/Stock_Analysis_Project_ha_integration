@@ -18,7 +18,9 @@ from .const import (
     CONF_BASE_URL,
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
+    CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
+    CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED,
     CONF_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
     DEFAULT_UPDATE_INTERVAL,
@@ -132,25 +134,48 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
     async def _async_update_data(self) -> dict:
-        """Fetch portfolio totals and market status from the backend."""
+        """Fetch market status, then the rest of the data — unless both UK and US markets are
+        closed and there's already prior data to reuse, in which case the three market-price
+        dependent fetches (portfolio totals, account metrics, holdings) are skipped in favor of
+        the previous refresh's values, since prices can't have changed. Other Accounts
+        (Pension/House) is never skipped this way — its valuations come from the Account Price
+        Scraper's own daily schedule, independent of stock market hours."""
         await self._async_load_state()
 
         try:
-            portfolio_totals = (
-                await self.api.get_portfolio_totals()
-                if self.entry.data.get(CONF_SHOW_PORTFOLIO_TOTALS, True)
-                else {}
-            )
             market_status = await self.api.get_market_status()
-            account_metrics = (
-                await self.api.get_account_metrics()
-                if self.entry.data.get(CONF_SHOW_ACCOUNTS, True)
-                else {"base_currency": None, "accounts": []}
+            skip_trading_fetches = (
+                self.data is not None
+                and not market_status.get("us_market_open")
+                and not market_status.get("uk_market_open")
+                and self.entry.data.get(CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, True)
             )
-            holdings = (
-                await self.api.get_holdings()
-                if self.entry.data.get(CONF_SHOW_HOLDINGS, True)
-                else {"base_currency": None, "holdings": []}
+
+            if skip_trading_fetches:
+                portfolio_totals = self.data["portfolio_totals"]
+                account_metrics = self.data["account_metrics"]
+                holdings = self.data["holdings"]
+            else:
+                portfolio_totals = (
+                    await self.api.get_portfolio_totals()
+                    if self.entry.data.get(CONF_SHOW_PORTFOLIO_TOTALS, True)
+                    else {}
+                )
+                account_metrics = (
+                    await self.api.get_account_metrics()
+                    if self.entry.data.get(CONF_SHOW_ACCOUNTS, True)
+                    else {"base_currency": None, "accounts": []}
+                )
+                holdings = (
+                    await self.api.get_holdings()
+                    if self.entry.data.get(CONF_SHOW_HOLDINGS, True)
+                    else {"base_currency": None, "holdings": []}
+                )
+
+            other_accounts = (
+                await self.api.get_other_accounts()
+                if self.entry.data.get(CONF_SHOW_OTHER_ACCOUNTS, True)
+                else {"base_currency": None, "accounts": []}
             )
         except StockAnalysisAuthError as err:
             raise ConfigEntryAuthFailed("Invalid API key") from err
@@ -163,6 +188,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             "market_status": market_status,
             "account_metrics": account_metrics,
             "holdings": holdings,
+            "other_accounts": other_accounts,
         }
 
     async def async_prune_orphans(self) -> None:
@@ -220,6 +246,11 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             valid_unique_ids.add(f"sap_holding_low_limit_{account_id}_{ticker}_{entry_id}")
             valid_unique_ids.add(f"sap_holding_high_limit_{account_id}_{ticker}_{entry_id}")
 
+        show_other_accounts = self.entry.data.get(CONF_SHOW_OTHER_ACCOUNTS, True)
+        if show_other_accounts:
+            for acc in (self.data or {}).get("other_accounts", {}).get("accounts", []):
+                valid_unique_ids.add(f"sap_other_account_value_{acc['account_id']}_{entry_id}")
+
         for entity_entry in entries:
             if entity_entry.unique_id not in valid_unique_ids:
                 entity_registry.async_remove(entity_entry.entity_id)
@@ -231,6 +262,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             f"sap_account_holdings_{account_id}_{entry_id}"
             for account_id in {account_id for account_id, _ticker in valid_holding_keys}
         )
+        if show_other_accounts:
+            valid_device_ids.add(f"sap_other_accounts_{entry_id}")
 
         for device_entry in dr.async_entries_for_config_entry(device_registry, entry_id):
             device_ids = {ident for domain, ident in device_entry.identifiers if domain == DOMAIN}
