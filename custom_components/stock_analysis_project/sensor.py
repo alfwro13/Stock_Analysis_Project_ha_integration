@@ -17,8 +17,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import StockAnalysisConfigEntry, StockAnalysisDataUpdateCoordinator
 from .const import (
     CONF_SHOW_ACCOUNTS,
+    CONF_SHOW_HOLDINGS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
+    holding_device_info,
     portfolio_device_info,
 )
 
@@ -116,6 +118,32 @@ async def async_setup_entry(
 
     config_entry.async_on_unload(coordinator.async_add_listener(_update_account_sensors))
     _update_account_sensors()
+
+    known_holding_ids: set[str] = set()
+
+    @callback
+    def _update_holding_sensors() -> None:
+        """Add a sensor for any (account_id, ticker) holding not yet represented as an entity."""
+        if not config_entry.data.get(CONF_SHOW_HOLDINGS, True):
+            return
+        if not coordinator.data:
+            return
+        holdings = coordinator.data.get("holdings", {}).get("holdings", []) or []
+        new_entities: list[SensorEntity] = []
+        for h in holdings:
+            unique_id = f"sap_holding_market_value_{h['account_id']}_{h['ticker']}_{config_entry.entry_id}"
+            if unique_id not in known_holding_ids:
+                known_holding_ids.add(unique_id)
+                new_entities.append(
+                    StockAnalysisHoldingSensor(
+                        coordinator, config_entry, h["account_id"], h["account_name"], h["ticker"]
+                    )
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(_update_holding_sensors))
+    _update_holding_sensors()
 
 
 class StockAnalysisBaseSensor(CoordinatorEntity, SensorEntity):
@@ -235,3 +263,92 @@ class StockAnalysisAccountPercentSensor(StockAnalysisAccountBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 2
+
+
+class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
+    """One sensor per (account, ticker) holding — state is market value in the portfolio's base
+    currency, all other Ghostfolio-style fields plus RSI/trend/earnings/limits are exposed as
+    attributes rather than as separate entities."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: StockAnalysisDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        account_id: int,
+        account_name: str,
+        ticker: str,
+    ) -> None:
+        """Initialize the per-holding sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._account_id = account_id
+        self._ticker = ticker
+        self._attr_name = "Market Value"
+        self._attr_unique_id = f"sap_holding_market_value_{account_id}_{ticker}_{config_entry.entry_id}"
+        self._attr_device_info = holding_device_info(config_entry, account_id, account_name, ticker)
+
+    @property
+    def _holding(self) -> dict[str, Any]:
+        """Return this sensor's holding row from the latest fetch, or {} if not found yet."""
+        if not self.coordinator.data:
+            return {}
+        holdings = self.coordinator.data.get("holdings", {}).get("holdings", []) or []
+        for row in holdings:
+            if row.get("account_id") == self._account_id and row.get("ticker") == self._ticker:
+                return row
+        return {}
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the holding's market value in the portfolio's base currency."""
+        return self._holding.get("market_value")
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return the portfolio's base currency."""
+        if not self.coordinator.data:
+            return "GBP"
+        return self.coordinator.data.get("holdings", {}).get("base_currency") or "GBP"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the full Ghostfolio-style attribute set plus RSI/trend/earnings/limits."""
+        h = self._holding
+        if not h:
+            return {}
+        return {
+            "ticker": h.get("ticker"),
+            "account": h.get("account_name"),
+            "number_of_shares": h.get("shares"),
+            "currency_asset": h.get("currency_asset"),
+            "currency_base": h.get("currency_base"),
+            "market_price": h.get("market_price"),
+            "market_price_currency": h.get("market_price_currency"),
+            "market_price_in_base_currency": h.get("market_price_in_base_currency"),
+            "average_buy_price": h.get("average_buy_price"),
+            "average_buy_price_currency": h.get("average_buy_price_currency"),
+            "gain_value": h.get("gain_value"),
+            "gain_value_currency": h.get("gain_value_currency"),
+            "gain_pct": h.get("gain_pct"),
+            "accumulated_dividends": h.get("accumulated_dividends"),
+            "accumulated_dividends_currency": h.get("accumulated_dividends_currency"),
+            "trend_vs_buy": h.get("trend_vs_buy"),
+            "asset_class": h.get("asset_class"),
+            "data_source": h.get("data_source"),
+            "market_change_24h": h.get("market_change_24h"),
+            "market_change_pct_24h": h.get("market_change_pct_24h"),
+            "low_limit_set": h.get("low_limit_set"),
+            "low_limit_reached": h.get("low_limit_reached"),
+            "high_limit_set": h.get("high_limit_set"),
+            "high_limit_reached": h.get("high_limit_reached"),
+            "profit_and_loss": h.get("profit_and_loss"),
+            "rsi": h.get("rsi"),
+            "trend_50d": h.get("trend_50d"),
+            "trend_200d": h.get("trend_200d"),
+            "next_earnings_date": h.get("next_earnings_date"),
+        }

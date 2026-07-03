@@ -118,6 +118,23 @@ class StockAnalysisAPI:
         """Trigger an immediate portfolio data refresh on the backend."""
         return await self._post("/api/accounts/refresh-now")
 
+    async def get_holdings(self) -> dict[str, Any]:
+        """Fetch per-holding metrics across every Trading account (Phase 3)."""
+        return await self._get("/api/accounts/holdings-list")
+
+    async def set_holding_price_limit(
+        self, account_id: int, ticker: str, low_limit: float | None = None, high_limit: float | None = None
+    ) -> dict[str, Any]:
+        """Set one holding's low and/or high price alert limit. Only the kwarg(s) actually passed
+        are included in the request body, so the backend's partial-update semantics are preserved
+        — setting a Low Limit never clears an already-set High Limit and vice versa."""
+        body: dict[str, Any] = {"account_id": account_id, "ticker": ticker}
+        if low_limit is not None:
+            body["low_limit"] = low_limit
+        if high_limit is not None:
+            body["high_limit"] = high_limit
+        return await self._post("/api/accounts/holding-price-limit", json_body=body)
+
     def _get_session(self) -> aiohttp.ClientSession:
         """Get or create the aiohttp session."""
         if self._session is None or self._session.closed:

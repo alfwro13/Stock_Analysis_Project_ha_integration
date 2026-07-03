@@ -1,14 +1,27 @@
 """Number platform for Stock Analysis Project integration."""
 from __future__ import annotations
 
-from homeassistant.components.number import RestoreNumber
+from typing import Any
+
+from homeassistant.components.number import NumberEntity, RestoreNumber
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import StockAnalysisConfigEntry
-from .const import CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, portfolio_device_info
+from . import StockAnalysisConfigEntry, StockAnalysisDataUpdateCoordinator
+from .const import (
+    CONF_SHOW_HOLDINGS,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    holding_device_info,
+    portfolio_device_info,
+)
+
+_HOLDING_LIMIT_NUMBERS: list[tuple[str, str, str]] = [
+    ("low_limit", "Low Limit"),
+    ("high_limit", "High Limit"),
+]
 
 
 async def async_setup_entry(
@@ -19,6 +32,34 @@ async def async_setup_entry(
     """Set up the Stock Analysis Project number platform."""
     coordinator = config_entry.runtime_data
     async_add_entities([StockAnalysisRefreshIntervalNumber(coordinator, config_entry)])
+
+    known_ids: set[str] = set()
+
+    @callback
+    def _update_holding_limit_numbers() -> None:
+        """Add Low/High Limit numbers for any holding not yet represented as entities."""
+        if not config_entry.data.get(CONF_SHOW_HOLDINGS, True):
+            return
+        if not coordinator.data:
+            return
+        holdings = coordinator.data.get("holdings", {}).get("holdings", []) or []
+        new_entities: list[NumberEntity] = []
+        for h in holdings:
+            account_id, ticker, account_name = h["account_id"], h["ticker"], h["account_name"]
+            for limit_key, name in _HOLDING_LIMIT_NUMBERS:
+                unique_id = f"sap_holding_{limit_key}_{account_id}_{ticker}_{config_entry.entry_id}"
+                if unique_id not in known_ids:
+                    known_ids.add(unique_id)
+                    new_entities.append(
+                        StockAnalysisHoldingLimitNumber(
+                            coordinator, config_entry, account_id, account_name, ticker, limit_key, name
+                        )
+                    )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(_update_holding_limit_numbers))
+    _update_holding_limit_numbers()
 
 
 class StockAnalysisRefreshIntervalNumber(CoordinatorEntity, RestoreNumber):
@@ -54,3 +95,65 @@ class StockAnalysisRefreshIntervalNumber(CoordinatorEntity, RestoreNumber):
         self._attr_native_value = value
         self.async_write_ha_state()
         await self.coordinator.async_set_update_interval(int(value))
+
+
+class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
+    """A Low/High price-alert limit for one (account, ticker) holding. Unlike
+    StockAnalysisRefreshIntervalNumber, the source of truth here is the backend DB
+    (holding_price_limits table) via the coordinator, not local HA restore state — the value
+    must stay in sync with the same limit shown as an attribute on the holding's Market Value
+    sensor, so it is always read fresh from coordinator data rather than cached locally."""
+
+    _attr_has_entity_name = True
+    _attr_entity_registry_enabled_default = False
+    _attr_mode = "box"
+    _attr_native_step = 0.01
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1_000_000
+
+    def __init__(
+        self,
+        coordinator: StockAnalysisDataUpdateCoordinator,
+        config_entry,
+        account_id: int,
+        account_name: str,
+        ticker: str,
+        limit_key: str,
+        name: str,
+    ) -> None:
+        """Initialize the holding limit number entity."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._account_id = account_id
+        self._ticker = ticker
+        self._limit_key = limit_key
+        self._attr_name = name
+        self._attr_unique_id = f"sap_holding_{limit_key}_{account_id}_{ticker}_{config_entry.entry_id}"
+        self._attr_device_info = holding_device_info(config_entry, account_id, account_name, ticker)
+
+    @property
+    def _holding(self) -> dict[str, Any]:
+        """Return this number's holding row from the latest fetch, or {} if not found yet."""
+        if not self.coordinator.data:
+            return {}
+        holdings = self.coordinator.data.get("holdings", {}).get("holdings", []) or []
+        for row in holdings:
+            if row.get("account_id") == self._account_id and row.get("ticker") == self._ticker:
+                return row
+        return {}
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the holding's native asset currency — limits are set in native price terms."""
+        return self._holding.get("market_price_currency")
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the currently stored limit value from the backend."""
+        return self._holding.get(self._limit_key)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Push the new limit value to the backend, then refresh so native_value reflects it."""
+        kwargs = {self._limit_key: value}
+        await self.coordinator.api.set_holding_price_limit(self._account_id, self._ticker, **kwargs)
+        await self.coordinator.async_request_refresh()

@@ -17,6 +17,7 @@ from .const import (
     CONF_API_KEY,
     CONF_BASE_URL,
     CONF_SHOW_ACCOUNTS,
+    CONF_SHOW_HOLDINGS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     CONF_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
@@ -146,6 +147,11 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 if self.entry.data.get(CONF_SHOW_ACCOUNTS, True)
                 else {"base_currency": None, "accounts": []}
             )
+            holdings = (
+                await self.api.get_holdings()
+                if self.entry.data.get(CONF_SHOW_HOLDINGS, True)
+                else {"base_currency": None, "holdings": []}
+            )
         except StockAnalysisAuthError as err:
             raise ConfigEntryAuthFailed("Invalid API key") from err
         except StockAnalysisAPIError as err:
@@ -156,6 +162,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             "portfolio_totals": portfolio_totals,
             "market_status": market_status,
             "account_metrics": account_metrics,
+            "holdings": holdings,
         }
 
     async def async_prune_orphans(self) -> None:
@@ -203,6 +210,16 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             ):
                 valid_unique_ids.add(f"sap_{key}_{account_id}_{entry_id}")
 
+        valid_holding_keys: set[tuple[int, str]] = set()
+        if self.entry.data.get(CONF_SHOW_HOLDINGS, True):
+            for h in (self.data or {}).get("holdings", {}).get("holdings", []):
+                valid_holding_keys.add((h["account_id"], h["ticker"]))
+
+        for account_id, ticker in valid_holding_keys:
+            valid_unique_ids.add(f"sap_holding_market_value_{account_id}_{ticker}_{entry_id}")
+            valid_unique_ids.add(f"sap_holding_low_limit_{account_id}_{ticker}_{entry_id}")
+            valid_unique_ids.add(f"sap_holding_high_limit_{account_id}_{ticker}_{entry_id}")
+
         for entity_entry in entries:
             if entity_entry.unique_id not in valid_unique_ids:
                 entity_registry.async_remove(entity_entry.entity_id)
@@ -210,6 +227,9 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         device_registry = dr.async_get(self.hass)
         valid_device_ids = {f"sap_portfolio_{entry_id}", f"sap_diagnostics_{entry_id}"}
         valid_device_ids.update(f"sap_account_{aid}_{entry_id}" for aid in valid_account_ids)
+        valid_device_ids.update(
+            f"sap_holding_{account_id}_{ticker}_{entry_id}" for account_id, ticker in valid_holding_keys
+        )
 
         for device_entry in dr.async_entries_for_config_entry(device_registry, entry_id):
             device_ids = {ident for domain, ident in device_entry.identifiers if domain == DOMAIN}

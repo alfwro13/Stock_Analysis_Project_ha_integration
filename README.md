@@ -45,6 +45,7 @@ This is a companion project to the main Stock Analysis Project app and talks onl
    - **Verify SSL Certificate** — leave enabled unless your instance sits behind a self-signed certificate or a corporate proxy (e.g. Zscaler) that intercepts SSL.
    - **Show Portfolio Totals** — create the ten portfolio-wide total sensors (cost, value, gain, dividends, TWR). Enabled by default.
    - **Show Account Totals** — create a separate sensor set (cash balance, gains, P&L, dividends, interest, MWRR) for each Trading account. Enabled by default.
+   - **Show Holdings** — create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account. Enabled by default.
    - **Update Interval** — how often to poll for updated portfolio data, in minutes (default 15, range 1-1440).
 
 The setup form validates the connection live by calling the portfolio-totals endpoint — this confirms both that the API key is valid and that the backend has the required endpoints deployed. You can revisit these same fields later via the integration's **Reconfigure** option — reconfiguring reloads the integration, so turning a "Show ..." toggle off removes its sensors from Home Assistant immediately rather than leaving them behind as unavailable.
@@ -112,14 +113,36 @@ Entity removal (an account deleted on the backend, or a "Show ..." toggle turned
 | Interest Income | Total interest received in the account | base currency |
 | Money Weighted Rate of Return | Since-inception Modified Dietz return (an IRR approximation) | % |
 
-## Planned: Phases 3-4 (not yet implemented)
+## Entities (Phase 3)
 
-This integration is being built out in phases. Phases 1-2 (above) are implemented. Planned future phases:
+One device per holding — per **(Trading account, ticker)** pair, not per ticker: the same stock held in two accounts gets two separate devices, one nested under each owning account's device via `via_device`. Named **`<ticker>` (`<account name>`)**. Sensors/numbers are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and devices on the resulting reload.
 
-- **Phase 3 — Per-holding sensors:** one sensor per asset held across your Trading accounts, plus price-limit number entities for setting alert thresholds.
+Each holding has exactly one sensor — **Market Value** (state = market value of that holding in that account, in the portfolio's base currency) — carrying every other data point as an attribute rather than as a separate entity:
+
+| Attribute | Description |
+|---|---|
+| `ticker`, `account`, `number_of_shares` | Identity and position size |
+| `currency_asset`, `currency_base` | The instrument's native currency vs. the portfolio's base currency |
+| `market_price`, `market_price_currency`, `market_price_in_base_currency` | Live price, in native currency and converted |
+| `average_buy_price`, `average_buy_price_currency` | Average cost basis (base currency) |
+| `gain_value` / `profit_and_loss`, `gain_value_currency`, `gain_pct` | Unrealized gain/loss (the same figure under two keys, for parity with the prior Ghostfolio-based integration) |
+| `accumulated_dividends`, `accumulated_dividends_currency` | Dividends received on this holding in this account |
+| `trend_vs_buy` | `up`/`down` — current price vs. average buy price |
+| `asset_class`, `data_source` | e.g. `EQUITY`/`ETF`, always `YAHOO` |
+| `market_change_24h`, `market_change_pct_24h` | 24-hour price change |
+| `rsi`, `trend_50d`, `trend_200d` | 14-day RSI and 50-/200-day moving-average trend direction |
+| `next_earnings_date` | Next scheduled earnings report date |
+| `low_limit_set`, `low_limit_reached`, `high_limit_set`, `high_limit_reached` | Whether a price-alert limit is configured and whether it's currently breached |
+
+Two **Number** entities per holding — **Low Limit** and **High Limit**, both disabled by default (enable manually if you want to configure and track a price-alert threshold) — set the corresponding limit in the instrument's native currency. Their value is read from and written to the backend (`holding_price_limits` table), not stored locally in Home Assistant, so it stays in sync with the `low_limit_set`/`high_limit_set` attributes above.
+
+## Planned: Phase 4 (not yet implemented)
+
+This integration is being built out in phases. Phases 1-3 (above) are implemented. Planned future phase:
+
 - **Phase 4 — Pension/House accounts:** sensors for the main app's Pension and House account types (property/pension valuations tracked via its Account Price Scraper).
 
-Until these ship, this integration only exposes the portfolio-wide totals, per-account metrics, and diagnostics described above.
+Until it ships, this integration does not expose Pension/House account data.
 
 ## Support & Disclaimer
 

@@ -9,11 +9,10 @@ CONF_VERIFY_SSL = "verify_ssl"
 CONF_UPDATE_INTERVAL = "update_interval"
 CONF_SHOW_PORTFOLIO_TOTALS = "show_portfolio_totals"
 CONF_SHOW_ACCOUNTS = "show_accounts"
-
-# Extension points for later phases (Phase 3: per-holding sensors, Phase 4: pension/house
-# accounts) — declared now so config_flow's schema won't need a breaking rename later. Do NOT
-# implement any behavior for these keys yet.
 CONF_SHOW_HOLDINGS = "show_holdings"
+
+# Extension point for Phase 4 (pension/house accounts) — declared now so config_flow's schema
+# won't need a breaking rename later. Do NOT implement any behavior for this key yet.
 CONF_SHOW_OTHER_ACCOUNTS = "show_other_accounts"
 
 # Default values
@@ -54,4 +53,17 @@ def account_device_info(config_entry, account_id: int, account_name: str) -> dic
         "manufacturer": "Stock Analysis Project",
         "model": "Trading Account",
         "via_device": (DOMAIN, f"sap_portfolio_{config_entry.entry_id}"),
+    }
+
+
+def holding_device_info(config_entry, account_id: int, account_name: str, ticker: str) -> dict:
+    """Return the device_info dict for one holding's device, nested under its owning account's
+    device rather than the Portfolio device — holdings are scoped per-account, so the same
+    ticker held in two accounts gets two separate devices, each nested under its own account."""
+    return {
+        "identifiers": {(DOMAIN, f"sap_holding_{account_id}_{ticker}_{config_entry.entry_id}")},
+        "name": f"{ticker} ({account_name})",
+        "manufacturer": "Stock Analysis Project",
+        "model": "Holding",
+        "via_device": (DOMAIN, f"sap_account_{account_id}_{config_entry.entry_id}"),
     }

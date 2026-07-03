@@ -91,10 +91,10 @@ async def test_platform_entity_counts(hass: HomeAssistant, mock_api) -> None:
     for e in entries:
         by_platform[e.domain] = by_platform.get(e.domain, 0) + 1
 
-    assert by_platform.get("sensor") == 34
+    assert by_platform.get("sensor") == 37  # 10 portfolio + 24 account (2x12) + 3 holdings
     assert by_platform.get("binary_sensor") == 5
     assert by_platform.get("switch") == 1
-    assert by_platform.get("number") == 1
+    assert by_platform.get("number") == 7  # 1 refresh interval + 3 holdings x 2 limit numbers
     assert by_platform.get("button") == 2
 
 
@@ -297,3 +297,86 @@ async def test_disabling_show_portfolio_totals_via_reload_auto_removes_portfolio
         if e.domain == "sensor" and e.unique_id.startswith("sap_portfolio_")
     ]
     assert len(portfolio_entities_after) == 0
+
+
+async def test_prune_orphans_removes_deleted_holding_entities_and_devices(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """After a holding disappears from a refresh, prune removes its sensor, both number
+    entities, and its device, leaving sibling holdings untouched."""
+    from unittest.mock import AsyncMock
+
+    from .conftest import SAMPLE_HOLDINGS
+
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    isa_aapl, gia_aapl, gia_vwrl = SAMPLE_HOLDINGS["holdings"]
+
+    mock_api.get_holdings = AsyncMock(
+        return_value={
+            "status": "success",
+            "base_currency": "GBP",
+            "holdings": [isa_aapl, gia_vwrl],
+        }
+    )
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    await coordinator.async_prune_orphans()
+    await hass.async_block_till_done()
+
+    registered_ids = {
+        e.unique_id for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
+
+    for key in ("market_value", "low_limit", "high_limit"):
+        assert f"sap_holding_{key}_{isa_aapl['account_id']}_AAPL_{entry.entry_id}" in registered_ids
+        assert f"sap_holding_{key}_{gia_vwrl['account_id']}_VWRL.L_{entry.entry_id}" in registered_ids
+        assert f"sap_holding_{key}_{gia_aapl['account_id']}_AAPL_{entry.entry_id}" not in registered_ids
+
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_holding_{gia_aapl['account_id']}_AAPL_{entry.entry_id}")}
+    ) is None
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_holding_{isa_aapl['account_id']}_AAPL_{entry.entry_id}")}
+    ) is not None
+
+
+async def test_disabling_show_holdings_via_reload_auto_removes_holding_entities(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Same auto-prune-on-reload behavior for the Show Holdings toggle."""
+    from .conftest import SAMPLE_HOLDINGS
+
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    holding_entities_before = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith("sap_holding_market_value_")
+    ]
+    assert len(holding_entities_before) == 3
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "show_holdings": False})
+    with patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api,
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    holding_entities_after = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith("sap_holding_market_value_") or e.unique_id.startswith("sap_holding_low_limit_")
+        or e.unique_id.startswith("sap_holding_high_limit_")
+    ]
+    assert len(holding_entities_after) == 0
+
+    for h in SAMPLE_HOLDINGS["holdings"]:
+        assert device_registry.async_get_device(
+            identifiers={(DOMAIN, f"sap_holding_{h['account_id']}_{h['ticker']}_{entry.entry_id}")}
+        ) is None

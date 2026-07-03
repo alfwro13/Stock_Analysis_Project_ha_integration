@@ -185,6 +185,21 @@ async def test_show_portfolio_totals_disabled_skips_fetch(hass: HomeAssistant, m
     await coordinator.async_shutdown()
 
 
+async def test_show_holdings_disabled_skips_fetch(hass: HomeAssistant, mock_api) -> None:
+    """CONF_SHOW_HOLDINGS=False means the coordinator never awaits get_holdings."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**SAMPLE_CONFIG, "show_holdings": False})
+    entry.add_to_hass(hass)
+    coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["holdings"] == {"base_currency": None, "holdings": []}
+    mock_api.get_holdings.assert_not_awaited()
+
+    await coordinator.async_shutdown()
+
+
 async def test_refresh_button_flow_calls_trigger_then_refresh(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
 ) -> None:

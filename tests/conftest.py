@@ -117,6 +117,69 @@ SAMPLE_ACCOUNT_METRICS_EMPTY = {
     "accounts": [],
 }
 
+SAMPLE_HOLDINGS = {
+    "status": "success",
+    "base_currency": "GBP",
+    "holdings": [
+        {
+            "account_id": 3, "account_name": "ISA", "ticker": "AAPL", "company_name": "Apple Inc.",
+            "shares": 10.0, "currency_asset": "USD", "currency_base": "GBP",
+            "market_price": 195.20, "market_price_currency": "USD",
+            "market_price_in_base_currency": 154.30,
+            "average_buy_price": 140.00, "average_buy_price_currency": "GBP",
+            "market_value": 1543.00, "total_investment": 1400.00,
+            "gain_value": 143.00, "gain_value_currency": "GBP", "gain_pct": 10.21,
+            "profit_and_loss": 143.00,
+            "accumulated_dividends": 12.40, "accumulated_dividends_currency": "GBP",
+            "trend_vs_buy": "up", "asset_class": "EQUITY", "data_source": "YAHOO",
+            "market_change_24h": 1.20, "market_change_pct_24h": 0.62,
+            "rsi": 58.4, "trend_50d": "up", "trend_200d": "up",
+            "next_earnings_date": "2026-07-25",
+            "priced_at_cost": False, "allocation_pct": 40.0,
+            "low_limit": 150.0, "low_limit_set": True, "low_limit_reached": False,
+            "high_limit": None, "high_limit_set": False, "high_limit_reached": False,
+        },
+        {
+            "account_id": 7, "account_name": "GIA", "ticker": "AAPL", "company_name": "Apple Inc.",
+            "shares": 5.0, "currency_asset": "USD", "currency_base": "GBP",
+            "market_price": 195.20, "market_price_currency": "USD",
+            "market_price_in_base_currency": 154.30,
+            "average_buy_price": 160.00, "average_buy_price_currency": "GBP",
+            "market_value": 771.50, "total_investment": 800.00,
+            "gain_value": -28.50, "gain_value_currency": "GBP", "gain_pct": -3.56,
+            "profit_and_loss": -28.50,
+            "accumulated_dividends": 6.20, "accumulated_dividends_currency": "GBP",
+            "trend_vs_buy": "down", "asset_class": "EQUITY", "data_source": "YAHOO",
+            "market_change_24h": 1.20, "market_change_pct_24h": 0.62,
+            "rsi": 58.4, "trend_50d": "up", "trend_200d": "up",
+            "next_earnings_date": "2026-07-25",
+            "priced_at_cost": False, "allocation_pct": 18.0,
+            "low_limit": None, "low_limit_set": False, "low_limit_reached": False,
+            "high_limit": 200.0, "high_limit_set": True, "high_limit_reached": False,
+        },
+        {
+            "account_id": 7, "account_name": "GIA", "ticker": "VWRL.L", "company_name": "Vanguard FTSE All-World",
+            "shares": 20.0, "currency_asset": "GBP", "currency_base": "GBP",
+            "market_price": 110.50, "market_price_currency": "GBP",
+            "market_price_in_base_currency": 110.50,
+            "average_buy_price": 95.00, "average_buy_price_currency": "GBP",
+            "market_value": 2210.00, "total_investment": 1900.00,
+            "gain_value": 310.00, "gain_value_currency": "GBP", "gain_pct": 16.32,
+            "profit_and_loss": 310.00,
+            "accumulated_dividends": 45.10, "accumulated_dividends_currency": "GBP",
+            "trend_vs_buy": "up", "asset_class": "ETF", "data_source": "YAHOO",
+            "market_change_24h": -0.30, "market_change_pct_24h": -0.27,
+            "rsi": 62.1, "trend_50d": "up", "trend_200d": "up",
+            "next_earnings_date": None,
+            "priced_at_cost": False, "allocation_pct": 42.0,
+            "low_limit": None, "low_limit_set": False, "low_limit_reached": False,
+            "high_limit": None, "high_limit_set": False, "high_limit_reached": False,
+        },
+    ],
+}
+
+SAMPLE_HOLDINGS_EMPTY = {"status": "success", "base_currency": "GBP", "holdings": []}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -141,6 +204,8 @@ def mock_api():
     api.get_portfolio_totals = AsyncMock(return_value=SAMPLE_PORTFOLIO_TOTALS)
     api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS)
     api.get_account_metrics = AsyncMock(return_value=SAMPLE_ACCOUNT_METRICS)
+    api.get_holdings = AsyncMock(return_value=SAMPLE_HOLDINGS)
+    api.set_holding_price_limit = AsyncMock(return_value={"status": "success"})
     api.trigger_refresh_now = AsyncMock(return_value={"status": "success"})
     api.close = AsyncMock()
     return api
