@@ -14,14 +14,30 @@ from custom_components.stock_analysis_project.api import (
 )
 from custom_components.stock_analysis_project.const import DOMAIN
 
-from .conftest import SAMPLE_CONFIG, SAMPLE_PORTFOLIO_TOTALS
+from .conftest import (
+    SAMPLE_ACCOUNT_METRICS_EMPTY,
+    SAMPLE_CONFIG,
+    SAMPLE_HOLDINGS_EMPTY,
+    SAMPLE_MARKET_STATUS,
+    SAMPLE_OTHER_ACCOUNTS_EMPTY,
+    SAMPLE_PORTFOLIO_TOTALS,
+)
 
 
 @pytest.fixture
 def mock_api_for_flow():
-    """Return a mock StockAnalysisAPI suitable for config flow tests."""
+    """Return a mock StockAnalysisAPI suitable for config flow tests. A successful flow
+    (CREATE_ENTRY or a reconfigure's "reconfigure_successful" abort) triggers a real
+    async_setup_entry -> coordinator first-refresh, which imports StockAnalysisAPI directly in
+    __init__.py rather than through config_flow's patched reference — so every coordinator
+    fetch method needs mocking here too, or that refresh hits a real, unmocked aiohttp session
+    that never gets closed."""
     api = MagicMock()
     api.get_portfolio_totals = AsyncMock(return_value=SAMPLE_PORTFOLIO_TOTALS)
+    api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS)
+    api.get_account_metrics = AsyncMock(return_value=SAMPLE_ACCOUNT_METRICS_EMPTY)
+    api.get_holdings = AsyncMock(return_value=SAMPLE_HOLDINGS_EMPTY)
+    api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS_EMPTY)
     api.close = AsyncMock()
     return api
 
@@ -30,6 +46,9 @@ async def test_user_step_success(hass: HomeAssistant, mock_api_for_flow) -> None
     """Happy path: valid credentials create a config entry."""
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
         return_value=mock_api_for_flow,
     ):
         result = await hass.config_entries.flow.async_init(
@@ -110,6 +129,9 @@ async def test_duplicate_entry_aborts(hass: HomeAssistant, mock_api_for_flow) ->
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
         return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -139,6 +161,9 @@ async def test_reconfigure_updates_entry(hass: HomeAssistant, mock_config_entry,
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
         return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM
@@ -158,6 +183,9 @@ async def test_user_step_defaults_show_toggles_to_true(hass: HomeAssistant, mock
     """Omitting the show_* toggles from user_input still creates an entry (schema defaults apply)."""
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
         return_value=mock_api_for_flow,
     ):
         result = await hass.config_entries.flow.async_init(
@@ -187,6 +215,9 @@ async def test_reconfigure_can_disable_show_accounts(
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
         return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
         result = await hass.config_entries.flow.async_configure(
@@ -209,6 +240,9 @@ async def test_reconfigure_can_disable_show_holdings(
 
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
         return_value=mock_api_for_flow,
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
@@ -233,6 +267,9 @@ async def test_reconfigure_can_disable_show_other_accounts(
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
         return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
         result = await hass.config_entries.flow.async_configure(
@@ -255,6 +292,9 @@ async def test_reconfigure_can_disable_skip_refresh_when_markets_closed(
 
     with patch(
         "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
         return_value=mock_api_for_flow,
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
