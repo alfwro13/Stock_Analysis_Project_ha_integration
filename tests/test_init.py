@@ -299,11 +299,12 @@ async def test_disabling_show_portfolio_totals_via_reload_auto_removes_portfolio
     assert len(portfolio_entities_after) == 0
 
 
-async def test_prune_orphans_removes_deleted_holding_entities_and_devices(
+async def test_prune_orphans_removes_deleted_holding_entities_keeps_device_with_sibling(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """After a holding disappears from a refresh, prune removes its sensor, both number
-    entities, and its device, leaving sibling holdings untouched."""
+    """After one holding disappears from a refresh, prune removes its sensor and both number
+    entities, but its account's Holdings device stays — a sibling holding in the same account
+    (GIA's VWRL.L) still has valid entities referencing that shared device."""
     from unittest.mock import AsyncMock
 
     from .conftest import SAMPLE_HOLDINGS
@@ -338,10 +339,47 @@ async def test_prune_orphans_removes_deleted_holding_entities_and_devices(
         assert f"sap_holding_{key}_{gia_aapl['account_id']}_AAPL_{entry.entry_id}" not in registered_ids
 
     assert device_registry.async_get_device(
-        identifiers={(DOMAIN, f"sap_holding_{gia_aapl['account_id']}_AAPL_{entry.entry_id}")}
+        identifiers={(DOMAIN, f"sap_account_holdings_{gia_aapl['account_id']}_{entry.entry_id}")}
+    ) is not None, "GIA's Holdings device must survive — VWRL.L still lives on it"
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_account_holdings_{isa_aapl['account_id']}_{entry.entry_id}")}
+    ) is not None
+
+
+async def test_prune_orphans_removes_holdings_device_when_account_has_no_holdings_left(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """When every holding in an account disappears from a refresh, prune removes that account's
+    Holdings device entirely, while a sibling account's Holdings device is untouched."""
+    from unittest.mock import AsyncMock
+
+    from .conftest import SAMPLE_HOLDINGS
+
+    entry = await _setup(hass, mock_api)
+    device_registry = dr.async_get(hass)
+
+    isa_aapl, gia_aapl, gia_vwrl = SAMPLE_HOLDINGS["holdings"]
+    assert gia_aapl["account_id"] == gia_vwrl["account_id"]
+
+    mock_api.get_holdings = AsyncMock(
+        return_value={
+            "status": "success",
+            "base_currency": "GBP",
+            "holdings": [isa_aapl],
+        }
+    )
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    await coordinator.async_prune_orphans()
+    await hass.async_block_till_done()
+
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_account_holdings_{gia_aapl['account_id']}_{entry.entry_id}")}
     ) is None
     assert device_registry.async_get_device(
-        identifiers={(DOMAIN, f"sap_holding_{isa_aapl['account_id']}_AAPL_{entry.entry_id}")}
+        identifiers={(DOMAIN, f"sap_account_holdings_{isa_aapl['account_id']}_{entry.entry_id}")}
     ) is not None
 
 
@@ -376,7 +414,7 @@ async def test_disabling_show_holdings_via_reload_auto_removes_holding_entities(
     ]
     assert len(holding_entities_after) == 0
 
-    for h in SAMPLE_HOLDINGS["holdings"]:
+    for account_id in {h["account_id"] for h in SAMPLE_HOLDINGS["holdings"]}:
         assert device_registry.async_get_device(
-            identifiers={(DOMAIN, f"sap_holding_{h['account_id']}_{h['ticker']}_{entry.entry_id}")}
+            identifiers={(DOMAIN, f"sap_account_holdings_{account_id}_{entry.entry_id}")}
         ) is None

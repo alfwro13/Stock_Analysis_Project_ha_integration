@@ -228,7 +228,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         valid_device_ids = {f"sap_portfolio_{entry_id}", f"sap_diagnostics_{entry_id}"}
         valid_device_ids.update(f"sap_account_{aid}_{entry_id}" for aid in valid_account_ids)
         valid_device_ids.update(
-            f"sap_holding_{account_id}_{ticker}_{entry_id}" for account_id, ticker in valid_holding_keys
+            f"sap_account_holdings_{account_id}_{entry_id}"
+            for account_id in {account_id for account_id, _ticker in valid_holding_keys}
         )
 
         for device_entry in dr.async_entries_for_config_entry(device_registry, entry_id):

@@ -14,7 +14,7 @@ from .const import (
     CONF_SHOW_HOLDINGS,
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
-    holding_device_info,
+    account_holdings_device_info,
     portfolio_device_info,
 )
 
@@ -102,7 +102,9 @@ class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
     StockAnalysisRefreshIntervalNumber, the source of truth here is the backend DB
     (holding_price_limits table) via the coordinator, not local HA restore state — the value
     must stay in sync with the same limit shown as an attribute on the holding's Market Value
-    sensor, so it is always read fresh from coordinator data rather than cached locally."""
+    sensor, so it is always read fresh from coordinator data rather than cached locally. Lives on
+    the shared per-account Holdings device alongside every other holding's entities, so the
+    entity name is ticker-prefixed to stay distinguishable from sibling holdings on that device."""
 
     _attr_has_entity_name = True
     _attr_entity_registry_enabled_default = False
@@ -127,9 +129,9 @@ class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
         self._account_id = account_id
         self._ticker = ticker
         self._limit_key = limit_key
-        self._attr_name = name
+        self._attr_name = f"{ticker} {name}"
         self._attr_unique_id = f"sap_holding_{limit_key}_{account_id}_{ticker}_{config_entry.entry_id}"
-        self._attr_device_info = holding_device_info(config_entry, account_id, account_name, ticker)
+        self._attr_device_info = account_holdings_device_info(config_entry, account_id, account_name)
 
     @property
     def _holding(self) -> dict[str, Any]:

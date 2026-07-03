@@ -56,14 +56,15 @@ def account_device_info(config_entry, account_id: int, account_name: str) -> dic
     }
 
 
-def holding_device_info(config_entry, account_id: int, account_name: str, ticker: str) -> dict:
-    """Return the device_info dict for one holding's device, nested under its owning account's
-    device rather than the Portfolio device — holdings are scoped per-account, so the same
-    ticker held in two accounts gets two separate devices, each nested under its own account."""
+def account_holdings_device_info(config_entry, account_id: int, account_name: str) -> dict:
+    """Return the device_info dict for one Trading account's Holdings device — a single device
+    per account holding every one of that account's per-ticker sensors/numbers as entities,
+    separate from that account's Totals device (account_device_info above) but nested under it,
+    so an account ends up with two devices: "<name> - Totals" and "<name> - Holdings"."""
     return {
-        "identifiers": {(DOMAIN, f"sap_holding_{account_id}_{ticker}_{config_entry.entry_id}")},
-        "name": f"{ticker} ({account_name})",
+        "identifiers": {(DOMAIN, f"sap_account_holdings_{account_id}_{config_entry.entry_id}")},
+        "name": f"{account_name} - Holdings",
         "manufacturer": "Stock Analysis Project",
-        "model": "Holding",
+        "model": "Trading Account Holdings",
         "via_device": (DOMAIN, f"sap_account_{account_id}_{config_entry.entry_id}"),
     }

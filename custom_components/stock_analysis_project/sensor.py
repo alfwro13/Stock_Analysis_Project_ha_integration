@@ -20,7 +20,7 @@ from .const import (
     CONF_SHOW_HOLDINGS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
-    holding_device_info,
+    account_holdings_device_info,
     portfolio_device_info,
 )
 
@@ -268,7 +268,9 @@ class StockAnalysisAccountPercentSensor(StockAnalysisAccountBaseSensor):
 class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
     """One sensor per (account, ticker) holding — state is market value in the portfolio's base
     currency, all other Ghostfolio-style fields plus RSI/trend/earnings/limits are exposed as
-    attributes rather than as separate entities."""
+    attributes rather than as separate entities. Lives on the shared per-account Holdings device
+    alongside every other holding in that account, so the entity name is ticker-prefixed to stay
+    distinguishable from sibling holdings on the same device."""
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -288,9 +290,9 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
         self.config_entry = config_entry
         self._account_id = account_id
         self._ticker = ticker
-        self._attr_name = "Market Value"
+        self._attr_name = f"{ticker} Market Value"
         self._attr_unique_id = f"sap_holding_market_value_{account_id}_{ticker}_{config_entry.entry_id}"
-        self._attr_device_info = holding_device_info(config_entry, account_id, account_name, ticker)
+        self._attr_device_info = account_holdings_device_info(config_entry, account_id, account_name)
 
     @property
     def _holding(self) -> dict[str, Any]:

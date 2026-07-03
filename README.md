@@ -115,9 +115,9 @@ Entity removal (an account deleted on the backend, or a "Show ..." toggle turned
 
 ### Per-Holding Entities
 
-One device per holding — per **(Trading account, ticker)** pair, not per ticker: the same stock held in two accounts gets two separate devices, one nested under each owning account's device via `via_device`. Named **`<ticker>` (`<account name>`)**. Sensors/numbers are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and devices on the resulting reload.
+One **Holdings** device per Trading account, named **`<account name>` - Holdings**, linked via `via_device` to that account's own Totals device — so each account shows up as two devices: `<account name>` - Totals and `<account name>` - Holdings. Every holding in that account (ticker) contributes its entities onto this single shared device rather than getting a device of its own; entity names are ticker-prefixed (e.g. "AAPL Market Value", "AAPL Low Limit") so holdings stay distinguishable on the shared device. The same ticker held in two different accounts appears on both accounts' respective Holdings devices independently — never merged. Entities are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and both accounts' Holdings devices on the resulting reload.
 
-Each holding has exactly one sensor — **Market Value** (state = market value of that holding in that account, in the portfolio's base currency) — carrying every other data point as an attribute rather than as a separate entity:
+Each holding has exactly one sensor — **`<ticker>` Market Value** (state = market value of that holding in that account, in the portfolio's base currency) — carrying every other data point as an attribute rather than as a separate entity:
 
 | Attribute | Description |
 |---|---|
@@ -134,7 +134,7 @@ Each holding has exactly one sensor — **Market Value** (state = market value o
 | `next_earnings_date` | Next scheduled earnings report date |
 | `low_limit_set`, `low_limit_reached`, `high_limit_set`, `high_limit_reached` | Whether a price-alert limit is configured and whether it's currently breached |
 
-Two **Number** entities per holding — **Low Limit** and **High Limit**, both disabled by default (enable manually if you want to configure and track a price-alert threshold) — set the corresponding limit in the instrument's native currency. Their value is read from and written to the backend (`holding_price_limits` table), not stored locally in Home Assistant, so it stays in sync with the `low_limit_set`/`high_limit_set` attributes above.
+Two **Number** entities per holding — **`<ticker>` Low Limit** and **`<ticker>` High Limit**, both disabled by default (enable manually if you want to configure and track a price-alert threshold) — set the corresponding limit in the instrument's native currency. Their value is read from and written to the backend (`holding_price_limits` table), not stored locally in Home Assistant, so it stays in sync with the `low_limit_set`/`high_limit_set` attributes above.
 
 ## Support & Disclaimer
 

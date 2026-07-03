@@ -171,10 +171,11 @@ def _holding_entities(registry: er.EntityRegistry, entry_id: str, holdings: list
     ]
 
 
-async def test_three_holdings_create_3_sensors_with_correct_unique_ids_and_devices(
+async def test_three_holdings_create_3_sensors_grouped_into_per_account_holdings_devices(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """The 3-holding sample payload creates 3 holding sensors, each nested under its account device."""
+    """The 3-holding sample payload (2 in ISA/GIA... actually 1 in ISA, 2 in GIA) creates 3
+    holding sensors, but only 2 Holdings devices — one per account, not one per holding."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
 
@@ -188,22 +189,29 @@ async def test_three_holdings_create_3_sensors_with_correct_unique_ids_and_devic
         assert entity is not None, f"missing entity for {unique_id}"
 
         device = device_registry.async_get_device(
-            identifiers={(DOMAIN, f"sap_holding_{h['account_id']}_{h['ticker']}_{entry.entry_id}")}
+            identifiers={(DOMAIN, f"sap_account_holdings_{h['account_id']}_{entry.entry_id}")}
         )
         assert device is not None
-        assert device.name == f"{h['ticker']} ({h['account_name']})"
+        assert device.name == f"{h['account_name']} - Holdings"
+        assert entity.device_id == device.id
         assert device.via_device_id is not None
-        account_device = device_registry.async_get_device(
+        account_totals_device = device_registry.async_get_device(
             identifiers={(DOMAIN, f"sap_account_{h['account_id']}_{entry.entry_id}")}
         )
-        assert device.via_device_id == account_device.id
+        assert device.via_device_id == account_totals_device.id
+
+    isa_holdings = [h for h in SAMPLE_HOLDINGS["holdings"] if h["account_id"] == 3]
+    gia_holdings = [h for h in SAMPLE_HOLDINGS["holdings"] if h["account_id"] == 7]
+    assert len(isa_holdings) == 1
+    assert len(gia_holdings) == 2
 
 
-async def test_same_ticker_two_accounts_creates_two_separate_devices_not_merged(
+async def test_same_ticker_two_accounts_creates_two_separate_holdings_devices_not_merged(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """AAPL held in both ISA and GIA (sample fixture) must produce two distinct holding devices,
-    not one merged device — the core Phase 3 per-account-scoping regression test."""
+    """AAPL held in both ISA and GIA (sample fixture) must produce two distinct Holdings devices
+    (one per account), not one merged device — the core Phase 3 per-account-scoping regression
+    test, now expressed at the device-per-account level rather than device-per-holding."""
     entry = await _setup(hass, mock_api)
     device_registry = dr.async_get(hass)
 
@@ -212,12 +220,37 @@ async def test_same_ticker_two_accounts_creates_two_separate_devices_not_merged(
 
     devices = [
         device_registry.async_get_device(
-            identifiers={(DOMAIN, f"sap_holding_{h['account_id']}_AAPL_{entry.entry_id}")}
+            identifiers={(DOMAIN, f"sap_account_holdings_{h['account_id']}_{entry.entry_id}")}
         )
         for h in aapl_rows
     ]
     assert all(d is not None for d in devices)
     assert devices[0].id != devices[1].id
+
+
+async def test_holdings_in_same_account_share_one_holdings_device(hass: HomeAssistant, mock_api) -> None:
+    """AAPL and VWRL.L, both held in GIA (sample fixture), must share the same Holdings device —
+    the core requirement of this device-grouping redesign."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    aapl_gia = next(h for h in SAMPLE_HOLDINGS["holdings"] if h["ticker"] == "AAPL" and h["account_id"] == 7)
+    vwrl_gia = next(h for h in SAMPLE_HOLDINGS["holdings"] if h["ticker"] == "VWRL.L" and h["account_id"] == 7)
+
+    aapl_entity = next(
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == _expected_holding_unique_id(entry.entry_id, aapl_gia["account_id"], "AAPL")
+    )
+    vwrl_entity = next(
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == _expected_holding_unique_id(entry.entry_id, vwrl_gia["account_id"], "VWRL.L")
+    )
+    assert aapl_entity.device_id == vwrl_entity.device_id
+
+    aapl_state = hass.states.get(aapl_entity.entity_id)
+    vwrl_state = hass.states.get(vwrl_entity.entity_id)
+    assert aapl_state.attributes.get("friendly_name", "").endswith("AAPL Market Value")
+    assert vwrl_state.attributes.get("friendly_name", "").endswith("VWRL.L Market Value")
 
 
 async def test_holding_sensor_value_matches_own_holding_not_other_account_same_ticker(
