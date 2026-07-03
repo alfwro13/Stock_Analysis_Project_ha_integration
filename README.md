@@ -8,7 +8,7 @@ A Home Assistant Custom Component (HACS integration) for monitoring a self-hoste
 
 This is a companion project to the main Stock Analysis Project app and talks only to that app's own API — it has no connection to Ghostfolio, Yahoo Finance, or any other third-party service directly.
 
-**Status:** Phases 1-2 shipped (portfolio totals, auto-refresh controls, diagnostics, per-Trading-account sensors). Per-holding sensors and Pension/House account sensors are planned but not yet implemented — see [Planned: Phases 3-4](#planned-phases-3-4-not-yet-implemented) below.
+It exposes portfolio-wide totals, per-Trading-account metrics, and per-holding data (including optional price-alert limits) as native sensors and number entities, plus auto-refresh controls and system/market diagnostics.
 
 ## Prerequisites
 
@@ -50,9 +50,9 @@ This is a companion project to the main Stock Analysis Project app and talks onl
 
 The setup form validates the connection live by calling the portfolio-totals endpoint — this confirms both that the API key is valid and that the backend has the required endpoints deployed. You can revisit these same fields later via the integration's **Reconfigure** option — reconfiguring reloads the integration, so turning a "Show ..." toggle off removes its sensors from Home Assistant immediately rather than leaving them behind as unavailable.
 
-## Entities (Phase 1)
+## Entities
 
-Entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy.
+Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below).
 
 ### Stock Analysis Project Portfolio (sensors)
 
@@ -92,7 +92,7 @@ The base currency for all monetary sensors is whatever the backend reports as th
 | System Status | **A problem has been detected** on the backend (inverted polarity — "on" means something is wrong, matching Home Assistant's convention for problem-style binary sensors) | no device_class |
 | Prune Orphaned Entities (button) | — | Removes any entities left behind in the Home Assistant entity registry that no longer correspond to a current sensor/entity from this integration — e.g. after an account is deleted on the backend, without waiting for the next restart/reconfigure. Safe to press at any time. |
 
-## Entities (Phase 2)
+### Per-Account Entities
 
 One device per Trading account, named **`<account name>` - Totals**, linked via `via_device` to the Stock Analysis Project Portfolio device. Sensors are created dynamically as accounts are added on the backend. Controlled by the **Show Account Totals** config option (default on); disabling it via Reconfigure removes all per-account sensors on the resulting reload.
 
@@ -113,7 +113,7 @@ Entity removal (an account deleted on the backend, or a "Show ..." toggle turned
 | Interest Income | Total interest received in the account | base currency |
 | Money Weighted Rate of Return | Since-inception Modified Dietz return (an IRR approximation) | % |
 
-## Entities (Phase 3)
+### Per-Holding Entities
 
 One device per holding — per **(Trading account, ticker)** pair, not per ticker: the same stock held in two accounts gets two separate devices, one nested under each owning account's device via `via_device`. Named **`<ticker>` (`<account name>`)**. Sensors/numbers are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and devices on the resulting reload.
 
@@ -135,14 +135,6 @@ Each holding has exactly one sensor — **Market Value** (state = market value o
 | `low_limit_set`, `low_limit_reached`, `high_limit_set`, `high_limit_reached` | Whether a price-alert limit is configured and whether it's currently breached |
 
 Two **Number** entities per holding — **Low Limit** and **High Limit**, both disabled by default (enable manually if you want to configure and track a price-alert threshold) — set the corresponding limit in the instrument's native currency. Their value is read from and written to the backend (`holding_price_limits` table), not stored locally in Home Assistant, so it stays in sync with the `low_limit_set`/`high_limit_set` attributes above.
-
-## Planned: Phase 4 (not yet implemented)
-
-This integration is being built out in phases. Phases 1-3 (above) are implemented. Planned future phase:
-
-- **Phase 4 — Pension/House accounts:** sensors for the main app's Pension and House account types (property/pension valuations tracked via its Account Price Scraper).
-
-Until it ships, this integration does not expose Pension/House account data.
 
 ## Support & Disclaimer
 
