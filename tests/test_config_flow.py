@@ -18,6 +18,8 @@ from .conftest import (
     SAMPLE_ACCOUNT_METRICS_EMPTY,
     SAMPLE_CONFIG,
     SAMPLE_HOLDINGS_EMPTY,
+    SAMPLE_MACRO_CONDITIONS_EMPTY,
+    SAMPLE_MARKET_REGIME_EMPTY,
     SAMPLE_MARKET_STATUS,
     SAMPLE_OTHER_ACCOUNTS_EMPTY,
     SAMPLE_PORTFOLIO_TOTALS,
@@ -38,6 +40,8 @@ def mock_api_for_flow():
     api.get_account_metrics = AsyncMock(return_value=SAMPLE_ACCOUNT_METRICS_EMPTY)
     api.get_holdings = AsyncMock(return_value=SAMPLE_HOLDINGS_EMPTY)
     api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS_EMPTY)
+    api.get_market_regime = AsyncMock(return_value=SAMPLE_MARKET_REGIME_EMPTY)
+    api.get_macro_conditions = AsyncMock(return_value=SAMPLE_MACRO_CONDITIONS_EMPTY)
     api.close = AsyncMock()
     return api
 
@@ -201,6 +205,7 @@ async def test_user_step_defaults_show_toggles_to_true(hass: HomeAssistant, mock
     assert result["data"].get("show_accounts", True) is True
     assert result["data"].get("show_holdings", True) is True
     assert result["data"].get("show_other_accounts", True) is True
+    assert result["data"].get("show_market_health", True) is True
     assert result["data"].get("skip_refresh_when_markets_closed", True) is True
 
 
@@ -280,6 +285,32 @@ async def test_reconfigure_can_disable_show_other_accounts(
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert mock_config_entry.data["show_other_accounts"] is False
+
+
+async def test_reconfigure_can_disable_show_market_health(
+    hass: HomeAssistant, mock_config_entry, mock_api_for_flow
+) -> None:
+    """Reconfigure flow can flip show_market_health to False."""
+    mock_config_entry.add_to_hass(hass)
+
+    updated_input = {**SAMPLE_CONFIG, "show_market_health": False}
+
+    with patch(
+        "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ):
+        result = await mock_config_entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=updated_input
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert mock_config_entry.data["show_market_health"] is False
 
 
 async def test_reconfigure_can_disable_skip_refresh_when_markets_closed(

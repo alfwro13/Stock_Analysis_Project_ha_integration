@@ -18,6 +18,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
+    CONF_SHOW_MARKET_HEALTH,
     CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED,
@@ -140,8 +141,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         closed and there's already prior data to reuse, in which case the three market-price
         dependent fetches (portfolio totals, account metrics, holdings) are skipped in favor of
         the previous refresh's values, since prices can't have changed. Other Accounts
-        (Pension/House) is never skipped this way — its valuations come from the Account Price
-        Scraper's own daily schedule, independent of stock market hours."""
+        (Pension/House) and Market Health (Phase 5 — regime/macro/auction/sentiment) are never
+        skipped this way — neither's data is driven by live market prices."""
         await self._async_load_state()
 
         try:
@@ -179,6 +180,20 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 if self.entry.data.get(CONF_SHOW_OTHER_ACCOUNTS, True)
                 else {"base_currency": None, "accounts": []}
             )
+
+            # Market Health (Phase 5) is daily-cadence backend data (regime/macro/auction/
+            # sentiment jobs), unrelated to intraday market-open status — never gated by
+            # CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, same reasoning as other_accounts above.
+            market_regime = (
+                await self.api.get_market_regime()
+                if self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
+                else {"current": None, "last_change": None}
+            )
+            macro_conditions = (
+                await self.api.get_macro_conditions()
+                if self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
+                else {}
+            )
         except StockAnalysisAuthError as err:
             raise ConfigEntryAuthFailed("Invalid API key") from err
         except StockAnalysisAPIError as err:
@@ -191,6 +206,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             "account_metrics": account_metrics,
             "holdings": holdings,
             "other_accounts": other_accounts,
+            "market_regime": market_regime,
+            "macro_conditions": macro_conditions,
         }
 
     async def async_prune_orphans(self) -> None:
@@ -253,6 +270,18 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             for acc in (self.data or {}).get("other_accounts", {}).get("accounts", []):
                 valid_unique_ids.add(f"sap_other_account_value_{acc['account_id']}_{entry_id}")
 
+        show_market_health = self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
+        if show_market_health:
+            valid_unique_ids.update({
+                f"sap_market_regime_{entry_id}",
+                f"sap_us_market_classification_{entry_id}",
+                f"sap_uk_market_classification_{entry_id}",
+                f"sap_us_10y_treasury_{entry_id}",
+                f"sap_uk_10y_gilt_{entry_id}",
+                f"sap_treasury_auction_demand_{entry_id}",
+                f"sap_fear_greed_index_{entry_id}",
+            })
+
         for entity_entry in entries:
             if entity_entry.unique_id not in valid_unique_ids:
                 entity_registry.async_remove(entity_entry.entity_id)
@@ -260,6 +289,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         device_registry = dr.async_get(self.hass)
         valid_device_ids = {f"sap_portfolio_{entry_id}", f"sap_diagnostics_{entry_id}"}
         valid_device_ids.update(f"sap_account_{aid}_{entry_id}" for aid in valid_account_ids)
+        if show_market_health:
+            valid_device_ids.add(f"sap_market_health_{entry_id}")
         valid_device_ids.update(
             f"sap_account_holdings_{account_id}_{entry_id}"
             for account_id in {account_id for account_id, _ticker in valid_holding_keys}

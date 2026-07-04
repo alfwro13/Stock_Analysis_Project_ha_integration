@@ -12,6 +12,7 @@
           "show_accounts": "Show Account Totals",
           "show_holdings": "Show Holdings",
           "show_other_accounts": "Show Other Accounts",
+          "show_market_health": "Show Market Health",
           "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
@@ -23,6 +24,7 @@
           "show_accounts": "Create a separate sensor set (cash balance, gains, P&L, dividends, MWRR) for each Trading account.",
           "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
           "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
+          "show_market_health": "Create 7 sensors on a shared \"Market Health\" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index.",
           "skip_refresh_when_markets_closed": "Skip re-fetching portfolio/account/holdings data while both UK and US markets are closed, reusing the last-known values instead. Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }
@@ -38,6 +40,7 @@
           "show_accounts": "Show Account Totals",
           "show_holdings": "Show Holdings",
           "show_other_accounts": "Show Other Accounts",
+          "show_market_health": "Show Market Health",
           "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
@@ -49,6 +52,7 @@
           "show_accounts": "Create a separate sensor set (cash balance, gains, P&L, dividends, MWRR) for each Trading account.",
           "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
           "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
+          "show_market_health": "Create 7 sensors on a shared \"Market Health\" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index.",
           "skip_refresh_when_markets_closed": "Skip re-fetching portfolio/account/holdings data while both UK and US markets are closed, reusing the last-known values instead. Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }

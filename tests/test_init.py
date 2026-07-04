@@ -65,6 +65,13 @@ EXPECTED_UNIQUE_IDS = [
     "sap_refresh_interval_{eid}",
     "sap_refresh_data_{eid}",
     "sap_prune_orphans_{eid}",
+    "sap_market_regime_{eid}",
+    "sap_us_market_classification_{eid}",
+    "sap_uk_market_classification_{eid}",
+    "sap_us_10y_treasury_{eid}",
+    "sap_uk_10y_gilt_{eid}",
+    "sap_treasury_auction_demand_{eid}",
+    "sap_fear_greed_index_{eid}",
 ]
 
 
@@ -91,7 +98,7 @@ async def test_platform_entity_counts(hass: HomeAssistant, mock_api) -> None:
     for e in entries:
         by_platform[e.domain] = by_platform.get(e.domain, 0) + 1
 
-    assert by_platform.get("sensor") == 39  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts
+    assert by_platform.get("sensor") == 46  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts + 7 market health
     assert by_platform.get("binary_sensor") == 5
     assert by_platform.get("switch") == 1
     assert by_platform.get("number") == 7  # 1 refresh interval + 3 holdings x 2 limit numbers
@@ -496,6 +503,51 @@ async def test_disabling_show_other_accounts_via_reload_auto_removes_entities_an
     ) is None
 
     # Unrelated devices are unaffected.
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_portfolio_{entry.entry_id}")}
+    ) is not None
+
+
+_MARKET_HEALTH_UNIQUE_ID_PREFIXES = (
+    "sap_market_regime_", "sap_us_market_classification_", "sap_uk_market_classification_",
+    "sap_us_10y_treasury_", "sap_uk_10y_gilt_", "sap_treasury_auction_demand_", "sap_fear_greed_index_",
+)
+
+
+async def test_disabling_show_market_health_via_reload_auto_removes_entities_and_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Disabling Show Market Health removes all 7 sensors and the shared device on reload —
+    same auto-prune-on-reload behavior as the other CONF_SHOW_* toggles."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    entities_before = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith(_MARKET_HEALTH_UNIQUE_ID_PREFIXES)
+    ]
+    assert len(entities_before) == 7
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_market_health_{entry.entry_id}")}
+    ) is not None
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "show_market_health": False})
+    with patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api,
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    entities_after = [
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith(_MARKET_HEALTH_UNIQUE_ID_PREFIXES)
+    ]
+    assert len(entities_after) == 0
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_market_health_{entry.entry_id}")}
+    ) is None
     assert device_registry.async_get_device(
         identifiers={(DOMAIN, f"sap_portfolio_{entry.entry_id}")}
     ) is not None

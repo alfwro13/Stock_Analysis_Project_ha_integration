@@ -47,14 +47,15 @@ It exposes portfolio-wide totals, per-Trading-account metrics, per-holding data 
    - **Show Account Totals** — create a separate sensor set (cash balance, gains, P&L, dividends, interest, MWRR) for each Trading account. Enabled by default.
    - **Show Holdings** — create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account. Enabled by default.
    - **Show Other Accounts** — create a sensor for each Pension/House account, on a shared "Other Accounts" device. Enabled by default.
-   - **Skip Refresh When Markets Closed** — while both the UK and US markets are closed, skip re-fetching portfolio/account/holdings data and reuse the last-known values instead, since live prices can't have changed. Other Accounts is never skipped this way, since Pension/House valuations come from the backend's own Account Price Scraper schedule, independent of stock market hours. Enabled by default.
+   - **Show Market Health** — create 7 sensors on a shared "Market Health" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index. Enabled by default.
+   - **Skip Refresh When Markets Closed** — while both the UK and US markets are closed, skip re-fetching portfolio/account/holdings data and reuse the last-known values instead, since live prices can't have changed. Other Accounts and Market Health are never skipped this way — neither is driven by live market prices. Enabled by default.
    - **Update Interval** — how often to poll for updated portfolio data, in minutes (default 15, range 1-1440).
 
 The setup form validates the connection live by calling the portfolio-totals endpoint — this confirms both that the API key is valid and that the backend has the required endpoints deployed. You can revisit these same fields later via the integration's **Reconfigure** option — reconfiguring reloads the integration, so turning a "Show ..." toggle off removes its sensors from Home Assistant immediately rather than leaving them behind as unavailable.
 
 ## Entities
 
-Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts instead share one single "Other Accounts" device (see below).
+Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts share one single "Other Accounts" device, and 7 market-wide macro/sentiment sensors share one single "Market Health" device (both described below).
 
 ### Stock Analysis Project Portfolio (sensors)
 
@@ -151,6 +152,20 @@ Unlike every other entity in this integration, an Other Accounts sensor's `entit
 | `currency` | attribute | The account's own native currency |
 | `performance_1m`, `performance_ytd`, `performance_1y` | attribute | % change over each window, derived from the backend's scraped/imported price history — `null` for a window with no price that far back yet |
 | `last_updated` | attribute | The most recent date the backend's Account Price Scraper (or a manual CSV import) recorded a price for this account, `null` if never scraped |
+
+### Market Health Entities
+
+One shared **Market Health** device, linked via `via_device` to the Stock Analysis Project Portfolio device, holding 7 static sensors — market-wide macro/sentiment signals rather than portfolio data. Unlike Trading accounts, holdings, or Other Accounts, none of these are per-item — the full set is created once and never grows/shrinks with backend data. Controlled by the **Show Market Health** config option (default on); disabling it via Reconfigure removes all 7 sensors and the device itself on the resulting reload.
+
+| Entity | State | Key attributes |
+|---|---|---|
+| Market Regime | HMM price-action regime: `Bull`, `Chop`, or `Crash` | `probability`, `as_of`, `last_change_date`, `last_change_from`, `last_change_to` |
+| US Market Classification | EWMA-turbulence classification: `Normal`, `Volatile`, or `Crash` — a different taxonomy from Market Regime, computed from realized S&P 500 volatility | — |
+| UK Market Classification | Same classification (`Normal`/`Volatile`/`Crash`), computed from realized FTSE 100 volatility | — |
+| US 10Y Treasury | Yield threat level: `Low`, `Elevated`, or `High` (mapped from the backend's raw `GREEN`/`YELLOW`/`RED`), based on the 10-year Treasury yield's level and 3-day velocity | `raw_level`, `yield_velocity_bps`, `tyx_close`, `tnx_close`, `as_of` |
+| UK 10Y Gilt | Same threat-level mapping, based on the UK 10-year Gilt yield | `raw_level`, `yield_velocity_bps`, `uk_gilt_close`, `as_of` |
+| US Treasury Auction Demand | `Healthy` or `Weakness Detected`, based on whether any of the last 6 US Treasury auctions (any maturity, within 30 days) showed weak bid-to-cover or a wide yield tail; `Unknown` if there's no auction in that window to judge | `recent_auctions` (list of the underlying auction rows) |
+| Fear & Greed Index | Numeric, 0-100 (CNN's Fear & Greed Index) | `label` (`Extreme Fear`/`Fear`/`Neutral`/`Greed`/`Extreme Greed`), `as_of` |
 
 ## Support & Disclaimer
 

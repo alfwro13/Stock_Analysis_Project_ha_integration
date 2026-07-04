@@ -15,8 +15,17 @@ from .conftest import (
     SAMPLE_CONFIG,
     SAMPLE_HOLDINGS,
     SAMPLE_HOLDINGS_EMPTY,
+    SAMPLE_MACRO_CONDITIONS,
+    SAMPLE_MACRO_CONDITIONS_EMPTY,
+    SAMPLE_MARKET_REGIME,
+    SAMPLE_MARKET_REGIME_EMPTY,
     SAMPLE_OTHER_ACCOUNTS,
     SAMPLE_OTHER_ACCOUNTS_EMPTY,
+)
+
+_MARKET_HEALTH_UNIQUE_ID_KEYS = (
+    "market_regime", "us_market_classification", "uk_market_classification",
+    "us_10y_treasury", "uk_10y_gilt", "treasury_auction_demand", "fear_greed_index",
 )
 
 _ACCOUNT_KEYS = (
@@ -448,3 +457,186 @@ async def test_show_other_accounts_disabled_skips_fetch_and_entities(
 
     mock_api.get_other_accounts.assert_not_awaited()
     assert _other_account_entities(registry, entry.entry_id) == []
+
+
+# ---------------------------------------------------------------------------
+# Market Health sensors (Phase 5)
+# ---------------------------------------------------------------------------
+
+def _market_health_entities(registry: er.EntityRegistry, entry_id: str) -> list[er.RegistryEntry]:
+    """Return only the Market Health sensor entities."""
+    expected = {f"sap_{key}_{entry_id}" for key in _MARKET_HEALTH_UNIQUE_ID_KEYS}
+    return [
+        e
+        for e in er.async_entries_for_config_entry(registry, entry_id)
+        if e.domain == "sensor" and e.unique_id in expected
+    ]
+
+
+async def test_market_health_creates_7_sensors_on_shared_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """All 7 Market Health sensors are created once (static, non-per-item) and share one
+    "Market Health" device, via_device-linked to the Portfolio device."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    entities = _market_health_entities(registry, entry.entry_id)
+    assert len(entities) == 7
+
+    device = device_registry.async_get_device(
+        identifiers={(DOMAIN, f"sap_market_health_{entry.entry_id}")}
+    )
+    assert device is not None
+    assert device.name == "Market Health"
+    for entity in entities:
+        assert entity.device_id == device.id
+
+
+async def test_market_regime_sensor_value_and_attributes(hass: HomeAssistant, mock_api) -> None:
+    """Market Regime sensor state is the HMM label, not the turbulence-classifier label —
+    both are distinct 'Crash'-containing taxonomies on the same backend row, the exact shape of
+    bug that bit Phase 1's field-swap."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_market_regime_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert state is not None
+    assert state.state == "Bull"
+    assert state.state != SAMPLE_MARKET_REGIME["current"]["us_regime_label"]
+    assert state.attributes.get("probability") == 0.87
+    assert state.attributes.get("as_of") == "2026-07-03"
+    assert state.attributes.get("last_change_from") == "Chop"
+    assert state.attributes.get("last_change_to") == "Bull"
+
+
+async def test_us_uk_market_classification_sensors_use_turbulence_label(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """US/UK Market Classification sensors read us/uk_regime_label, not the HMM's own label."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    us_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_us_market_classification_{entry.entry_id}"
+    )
+    uk_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_uk_market_classification_{entry.entry_id}"
+    )
+    assert hass.states.get(us_entity.entity_id).state == "Normal"
+    assert hass.states.get(uk_entity.entity_id).state == "Volatile"
+
+
+async def test_us_10y_treasury_and_uk_10y_gilt_map_threat_level_to_low_elevated_high(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """GREEN/YELLOW/RED raw threat levels map to Low/Elevated/High sensor state, with the raw
+    value preserved as an attribute."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    us_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_us_10y_treasury_{entry.entry_id}"
+    )
+    uk_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_uk_10y_gilt_{entry.entry_id}"
+    )
+    us_state = hass.states.get(us_entity.entity_id)
+    uk_state = hass.states.get(uk_entity.entity_id)
+
+    assert us_state.state == "Elevated"  # YELLOW
+    assert us_state.attributes.get("raw_level") == "YELLOW"
+    assert us_state.attributes.get("yield_velocity_bps") == 18.5
+
+    assert uk_state.state == "Low"  # GREEN
+    assert uk_state.attributes.get("raw_level") == "GREEN"
+    assert uk_state.attributes.get("uk_gilt_close") == 4.10
+
+
+async def test_treasury_auction_demand_sensor_weak_and_healthy_and_unknown(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Healthy=False -> "Weakness Detected"; Healthy=True -> "Healthy"; Healthy=None -> Unknown
+    (no auctions in the window is a distinct case from "all auctions were fine")."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_treasury_auction_demand_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert state.state == "Weakness Detected"
+    assert len(state.attributes.get("recent_auctions")) == 1
+
+    healthy_macro = dict(SAMPLE_MACRO_CONDITIONS, treasury_auction={"healthy": True, "recent": []})
+    entry.runtime_data.api.get_macro_conditions = AsyncMock(return_value=healthy_macro)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity.entity_id).state == "Healthy"
+
+    unknown_macro = dict(SAMPLE_MACRO_CONDITIONS, treasury_auction={"healthy": None, "recent": []})
+    entry.runtime_data.api.get_macro_conditions = AsyncMock(return_value=unknown_macro)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity.entity_id).state == "unknown"
+
+
+async def test_fear_greed_index_sensor_numeric_state_with_label_attribute(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Fear & Greed is the one Market Health sensor with a numeric state; label is an attribute."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_fear_greed_index_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert float(state.state) == 62.0
+    assert state.attributes.get("label") == "Greed"
+
+
+async def test_market_health_degrades_to_unknown_on_fresh_backend(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A fresh backend with no market_regimes/macro_regimes rows must degrade every one of the
+    7 sensors to Unknown, never raise, and never silently show 0 in place of None."""
+    mock_api.get_market_regime = AsyncMock(return_value=SAMPLE_MARKET_REGIME_EMPTY)
+    mock_api.get_macro_conditions = AsyncMock(return_value=SAMPLE_MACRO_CONDITIONS_EMPTY)
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    for entity in _market_health_entities(registry, entry.entry_id):
+        state = hass.states.get(entity.entity_id)
+        assert state is not None
+        assert state.state == "unknown"
+
+
+async def test_show_market_health_disabled_skips_fetch_and_entities(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """CONF_SHOW_MARKET_HEALTH=False means the coordinator never awaits either Market Health
+    fetch and creates no entities."""
+    data = dict(SAMPLE_CONFIG, show_market_health=False)
+    entry = await _setup(hass, mock_api, data=data)
+    registry = er.async_get(hass)
+
+    mock_api.get_market_regime.assert_not_awaited()
+    mock_api.get_macro_conditions.assert_not_awaited()
+    assert _market_health_entities(registry, entry.entry_id) == []

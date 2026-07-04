@@ -1,7 +1,7 @@
 """Sensor platform for Stock Analysis Project integration."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -19,10 +19,12 @@ from . import StockAnalysisConfigEntry, StockAnalysisDataUpdateCoordinator
 from .const import (
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
+    CONF_SHOW_MARKET_HEALTH,
     CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
     account_holdings_device_info,
+    market_health_device_info,
     other_accounts_device_info,
     portfolio_device_info,
 )
@@ -62,6 +64,80 @@ _ACCOUNT_PERCENT_SENSORS: list[tuple[str, str, str]] = [
 ]
 
 
+def _map_threat_level(raw: str | None) -> str | None:
+    """GREEN/YELLOW/RED (the backend's raw macro_regimes.*_threat_level) -> Low/Elevated/High,
+    matching the wording already used on the main app's own risk-summary banners."""
+    return {"GREEN": "Low", "YELLOW": "Elevated", "RED": "High"}.get(raw)
+
+
+def _regime_current(regime: dict[str, Any]) -> dict[str, Any]:
+    """regime is the full market_regime payload ({"current": {...}, "last_change": {...}}) —
+    this extracts the "current" sub-dict that most fields below read from."""
+    return regime.get("current") or {}
+
+
+def _regime_attrs(regime: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+    current = _regime_current(regime)
+    last_change = regime.get("last_change") or {}
+    return {
+        "probability": current.get("probability"),
+        "as_of": current.get("as_of"),
+        "last_change_date": last_change.get("date"),
+        "last_change_from": last_change.get("from_label"),
+        "last_change_to": last_change.get("to_label"),
+    }
+
+
+def _us_treasury_attrs(regime: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "raw_level": macro.get("us_threat_level"),
+        "yield_velocity_bps": macro.get("us_yield_velocity"),
+        "tyx_close": macro.get("tyx_close"),
+        "tnx_close": macro.get("tnx_close"),
+        "as_of": macro.get("as_of"),
+    }
+
+
+def _uk_gilt_attrs(regime: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "raw_level": macro.get("uk_threat_level"),
+        "yield_velocity_bps": macro.get("uk_yield_velocity"),
+        "uk_gilt_close": macro.get("uk_gilt_close"),
+        "as_of": macro.get("as_of"),
+    }
+
+
+def _auction_value(regime: dict[str, Any], macro: dict[str, Any]) -> str | None:
+    healthy = macro.get("treasury_auction", {}).get("healthy")
+    if healthy is None:
+        return None
+    return "Healthy" if healthy else "Weakness Detected"
+
+
+def _auction_attrs(regime: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+    return {"recent_auctions": macro.get("treasury_auction", {}).get("recent", [])}
+
+
+def _fear_greed_attrs(regime: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+    fear_greed = macro.get("fear_greed") or {}
+    return {"label": fear_greed.get("label"), "as_of": fear_greed.get("as_of")}
+
+
+# (unique_id_key, name, value_fn(regime, macro), attrs_fn(regime, macro))
+_MARKET_HEALTH_SENSORS: list[tuple[str, str, Callable, Callable]] = [
+    ("market_regime", "Market Regime", lambda r, m: _regime_current(r).get("label"), _regime_attrs),
+    ("us_market_classification", "US Market Classification", lambda r, m: _regime_current(r).get("us_regime_label"), lambda r, m: {}),
+    ("uk_market_classification", "UK Market Classification", lambda r, m: _regime_current(r).get("uk_regime_label"), lambda r, m: {}),
+    ("us_10y_treasury", "US 10Y Treasury", lambda r, m: _map_threat_level(m.get("us_threat_level")), _us_treasury_attrs),
+    ("uk_10y_gilt", "UK 10Y Gilt", lambda r, m: _map_threat_level(m.get("uk_threat_level")), _uk_gilt_attrs),
+    ("treasury_auction_demand", "US Treasury Auction Demand", _auction_value, _auction_attrs),
+]
+
+_FEAR_GREED_SENSOR: tuple[str, str, Callable, Callable] = (
+    "fear_greed_index", "Fear & Greed Index", lambda r, m: m.get("fear_greed", {}).get("value"), _fear_greed_attrs,
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: StockAnalysisConfigEntry,
@@ -80,6 +156,13 @@ async def async_setup_entry(
             StockAnalysisPercentSensor(coordinator, config_entry, key, name, field)
             for key, name, field in _PERCENT_SENSORS
         )
+
+    if config_entry.data.get(CONF_SHOW_MARKET_HEALTH, True):
+        entities.extend(
+            StockAnalysisMarketHealthSensor(coordinator, config_entry, key, name, value_fn, attrs_fn)
+            for key, name, value_fn, attrs_fn in _MARKET_HEALTH_SENSORS
+        )
+        entities.append(StockAnalysisFearGreedSensor(coordinator, config_entry, *_FEAR_GREED_SENSOR))
 
     if entities:
         async_add_entities(entities)
@@ -451,3 +534,64 @@ class StockAnalysisOtherAccountSensor(CoordinatorEntity, SensorEntity):
             "performance_1y": performance.get("1y"),
             "last_updated": acc.get("last_updated"),
         }
+
+
+class StockAnalysisMarketHealthSensor(CoordinatorEntity, SensorEntity):
+    """One of 7 static, non-per-item sensors on the shared "Market Health" device (Phase 5) —
+    Market Regime, US/UK classification, US 10Y Treasury, UK 10Y Gilt, and Treasury Auction
+    Demand. Unlike Phase 2/3/4's dynamic per-item entity sets, this is a fixed list known at
+    startup (no known_ids/listener discovery needed), mirroring binary_sensor.py's diagnostic
+    sensors — just assigned to its own device rather than the Diagnostics device."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: StockAnalysisDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        unique_id_key: str,
+        name: str,
+        value_fn: Callable[[dict[str, Any], dict[str, Any]], Any],
+        attrs_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    ) -> None:
+        """Initialize the Market Health sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._value_fn = value_fn
+        self._attrs_fn = attrs_fn
+        self._attr_name = name
+        self._attr_unique_id = f"sap_{unique_id_key}_{config_entry.entry_id}"
+        self._attr_device_info = market_health_device_info(config_entry)
+
+    @property
+    def _regime(self) -> dict[str, Any]:
+        """Return the latest full market_regime payload ({"current": {...}, "last_change":
+        {...}}), or {} if no data yet — most value/attrs functions dig into "current"
+        themselves via _regime_current()."""
+        if not self.coordinator.data:
+            return {}
+        return self.coordinator.data.get("market_regime", {}) or {}
+
+    @property
+    def _macro(self) -> dict[str, Any]:
+        """Return the latest macro_conditions payload, or {} if no data yet."""
+        if not self.coordinator.data:
+            return {}
+        return self.coordinator.data.get("macro_conditions", {}) or {}
+
+    @property
+    def native_value(self) -> Any:
+        """Return this sensor's value via its own value_fn."""
+        return self._value_fn(self._regime, self._macro)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return this sensor's attributes via its own attrs_fn."""
+        return self._attrs_fn(self._regime, self._macro)
+
+
+class StockAnalysisFearGreedSensor(StockAnalysisMarketHealthSensor):
+    """The one Market Health sensor with a numeric (graphable) state — CNN Fear & Greed Index,
+    0-100 — everything else in this group is a text label."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT

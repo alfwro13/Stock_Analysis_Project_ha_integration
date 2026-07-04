@@ -215,6 +215,54 @@ SAMPLE_OTHER_ACCOUNTS = {
 
 SAMPLE_OTHER_ACCOUNTS_EMPTY = {"status": "success", "base_currency": "GBP", "accounts": []}
 
+SAMPLE_MARKET_REGIME = {
+    "status": "success",
+    "current": {
+        "state": 0, "label": "Bull", "probability": 0.87, "as_of": "2026-07-03",
+        "us_regime_label": "Normal", "uk_regime_label": "Volatile",
+    },
+    "last_change": {"date": "2026-06-20", "from_label": "Chop", "to_label": "Bull"},
+}
+
+SAMPLE_MARKET_REGIME_EMPTY = {"status": "success", "current": None, "last_change": None}
+
+SAMPLE_MACRO_CONDITIONS = {
+    "status": "success",
+    "as_of": "2026-07-03",
+    "us_threat_level": "YELLOW",
+    "uk_threat_level": "GREEN",
+    "us_yield_velocity": 18.5,
+    "uk_yield_velocity": 4.2,
+    "tyx_close": 4.55,
+    "tnx_close": 4.30,
+    "uk_gilt_close": 4.10,
+    "dxy_close": 104.2,
+    "gbpusd_close": 1.27,
+    "treasury_auction": {
+        "healthy": False,
+        "recent": [
+            {"maturity_label": "10Y", "auction_date": "2026-07-01", "bid_to_cover": 2.45, "tail_bp": 1.2, "alert_fired": 1},
+        ],
+    },
+    "fear_greed": {"value": 62.0, "label": "Greed", "as_of": "2026-07-02"},
+}
+
+SAMPLE_MACRO_CONDITIONS_EMPTY = {
+    "status": "success",
+    "as_of": None,
+    "us_threat_level": None,
+    "uk_threat_level": None,
+    "us_yield_velocity": None,
+    "uk_yield_velocity": None,
+    "tyx_close": None,
+    "tnx_close": None,
+    "uk_gilt_close": None,
+    "dxy_close": None,
+    "gbpusd_close": None,
+    "treasury_auction": {"healthy": None, "recent": []},
+    "fear_greed": {"value": None, "label": None, "as_of": None},
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -241,6 +289,8 @@ def mock_api():
     api.get_account_metrics = AsyncMock(return_value=SAMPLE_ACCOUNT_METRICS)
     api.get_holdings = AsyncMock(return_value=SAMPLE_HOLDINGS)
     api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS)
+    api.get_market_regime = AsyncMock(return_value=SAMPLE_MARKET_REGIME)
+    api.get_macro_conditions = AsyncMock(return_value=SAMPLE_MACRO_CONDITIONS)
     api.set_holding_price_limit = AsyncMock(return_value={"status": "success"})
     api.trigger_refresh_now = AsyncMock(return_value={"status": "success"})
     api.close = AsyncMock()

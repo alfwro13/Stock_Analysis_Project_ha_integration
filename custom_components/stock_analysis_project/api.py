@@ -126,6 +126,14 @@ class StockAnalysisAPI:
         """Fetch current value + basic performance for every Pension/House account (Phase 4)."""
         return await self._get("/api/accounts/other-accounts-list")
 
+    async def get_market_regime(self) -> dict[str, Any]:
+        """Fetch the latest HMM regime state plus US/UK turbulence classification (Phase 5)."""
+        return await self._get("/api/market-regime/current")
+
+    async def get_macro_conditions(self) -> dict[str, Any]:
+        """Fetch sovereign-yield threat levels, Treasury auction demand, and Fear & Greed (Phase 5)."""
+        return await self._get("/api/macro-conditions")
+
     async def set_holding_price_limit(
         self, account_id: int, ticker: str, low_limit: float | None = None, high_limit: float | None = None
     ) -> dict[str, Any]:

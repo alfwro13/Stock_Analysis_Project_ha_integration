@@ -288,6 +288,42 @@ async def test_show_other_accounts_disabled_skips_fetch(hass: HomeAssistant, moc
     await coordinator.async_shutdown()
 
 
+async def test_market_health_not_skipped_when_markets_closed(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """Market Health (regime/macro conditions) is daily-cadence data, unrelated to intraday
+    market-open status — unlike portfolio/account/holdings, it is fetched every tick even when
+    both markets are closed, the same way Other Accounts is."""
+    await coordinator.async_refresh()
+    mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
+
+    regime_calls_before = mock_api.get_market_regime.call_count
+    macro_calls_before = mock_api.get_macro_conditions.call_count
+
+    await coordinator.async_refresh()
+
+    assert mock_api.get_market_regime.call_count == regime_calls_before + 1
+    assert mock_api.get_macro_conditions.call_count == macro_calls_before + 1
+
+
+async def test_show_market_health_disabled_skips_fetch(hass: HomeAssistant, mock_api) -> None:
+    """CONF_SHOW_MARKET_HEALTH=False means the coordinator never awaits either Market Health
+    fetch."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**SAMPLE_CONFIG, "show_market_health": False})
+    entry.add_to_hass(hass)
+    coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["market_regime"] == {"current": None, "last_change": None}
+    assert coordinator.data["macro_conditions"] == {}
+    mock_api.get_market_regime.assert_not_awaited()
+    mock_api.get_macro_conditions.assert_not_awaited()
+
+    await coordinator.async_shutdown()
+
+
 async def test_refresh_button_flow_calls_trigger_then_refresh(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
 ) -> None:
