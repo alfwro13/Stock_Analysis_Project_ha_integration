@@ -82,7 +82,7 @@ The base currency for all monetary sensors is whatever the backend reports as th
 |---|---|---|
 | Enable Auto Refresh | switch | Turn background polling on/off. Turning it off suspends the coordinator's timer entirely; turning it back on resumes polling immediately and persists across Home Assistant restarts. |
 | Refresh Interval | number | Change the polling interval (1-1440 minutes) at runtime — takes effect immediately, no restart needed. |
-| Refresh Data | button | Triggers an immediate backend refresh (live prices + performance cache) and re-polls Home Assistant shortly after. The backend refresh runs in the background, so sensor values may take a few seconds to update after pressing. |
+| Refresh Data | button | Triggers an immediate backend refresh (live prices + performance cache), waits for it to actually finish, then re-polls Home Assistant — so sensor values are updated as soon as the button press completes, not on some later poll. |
 
 ### Stock Analysis Project Diagnostics (binary sensors + button)
 

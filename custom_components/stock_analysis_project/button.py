@@ -39,8 +39,7 @@ class StockAnalysisRefreshDataButton(CoordinatorEntity, ButtonEntity):
         self._attr_device_info = portfolio_device_info(config_entry)
 
     async def async_press(self) -> None:
-        """Queue a backend refresh and immediately re-poll."""
-        # Backend refresh runs as a background task, so the re-poll may briefly show stale data — expected.
+        """Trigger a backend refresh (awaited until the fetch actually completes) and re-poll."""
         await self.coordinator.api.trigger_refresh_now()
         await self.coordinator.async_request_refresh()
 
