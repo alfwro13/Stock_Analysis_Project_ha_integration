@@ -131,8 +131,8 @@ Each holding has exactly one sensor — **`<ticker>` Market Value** (state = mar
 | `gain_value` / `profit_and_loss`, `gain_value_currency`, `gain_pct` | Unrealized gain/loss (the same figure under two keys, for parity with the prior Ghostfolio-based integration) |
 | `accumulated_dividends`, `accumulated_dividends_currency` | Dividends received on this holding in this account |
 | `trend_vs_buy` | `up`/`down` — current price vs. average buy price |
-| `asset_class`, `data_source` | e.g. `EQUITY`/`ETF`, always `YAHOO` |
-| `market_change_24h`, `market_change_pct_24h` | 24-hour price change |
+| `asset_class`, `data_source` | e.g. `EQUITY`/`ETF`/`Fixed Income` (`Fixed Income` for a UK Treasury Bill holding); `data_source` is `YAHOO` or `TBILL` |
+| `market_change_24h`, `market_change_pct_24h` | 24-hour price change; for a Treasury Bill this is the bill's own known daily accretion rate rather than a live quote |
 | `rsi`, `trend_50d`, `trend_200d` | 14-day RSI and 50-/200-day moving-average trend direction |
 | `next_earnings_date` | Next scheduled earnings report date |
 | `low_limit_set`, `low_limit_reached`, `high_limit_set`, `high_limit_reached` | Whether a price-alert limit is configured and whether it's currently breached |
