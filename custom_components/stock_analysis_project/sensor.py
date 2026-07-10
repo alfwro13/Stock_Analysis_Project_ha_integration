@@ -672,7 +672,7 @@ class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
         """Return the registry's own display_name for this ticker, resolved from the latest
         fetch rather than cached at construction time (a spot/future auto-swap can change which
         ticker resolves for this display_name between polls)."""
-        return self._tile.get("display_name") or self._ticker
+        return self._tile.get("display_name") or self._registry_ticker
 
     @property
     def native_value(self) -> float | None:
