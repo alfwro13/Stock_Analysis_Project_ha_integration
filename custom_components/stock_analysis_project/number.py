@@ -104,7 +104,14 @@ class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
     must stay in sync with the same limit shown as an attribute on the holding's Market Value
     sensor, so it is always read fresh from coordinator data rather than cached locally. Lives on
     the shared per-account Holdings device alongside every other holding's entities, so the
-    entity name is ticker-prefixed to stay distinguishable from sibling holdings on that device."""
+    entity name is ticker-prefixed to stay distinguishable from sibling holdings on that device.
+
+    0 means "not set": HA's NumberEntity always carries a concrete float and has no native way to
+    submit an explicit null the way the Stock Detail page's Set Targets panel can (blank input).
+    Since a real Low/High Limit can never sensibly be 0 (a High Limit of 0 would fire immediately,
+    as price is always >= 0), 0 — already the entity's native_min_value — doubles as the "clear
+    this limit" sentinel in both directions: dragging the number down to 0 clears the backend
+    value, and a cleared/never-set backend value displays as 0 rather than "unknown"."""
 
     _attr_has_entity_name = True
     _attr_entity_registry_enabled_default = False
@@ -151,11 +158,12 @@ class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the currently stored limit value from the backend."""
-        return self._holding.get(self._limit_key)
+        """Return the currently stored limit value from the backend, or 0 if unset/cleared."""
+        return self._holding.get(self._limit_key) or 0
 
     async def async_set_native_value(self, value: float) -> None:
-        """Push the new limit value to the backend, then refresh so native_value reflects it."""
-        kwargs = {self._limit_key: value}
+        """Push the new limit value to the backend, then refresh so native_value reflects it.
+        A value of 0 clears the limit (sent as None) rather than storing a literal 0 threshold."""
+        kwargs = {self._limit_key: value if value > 0 else None}
         await self.coordinator.api.set_holding_price_limit(self._account_id, self._ticker, **kwargs)
         await self.coordinator.async_request_refresh()

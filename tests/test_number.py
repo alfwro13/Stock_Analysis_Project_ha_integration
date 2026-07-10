@@ -133,3 +133,58 @@ async def test_holding_limit_number_set_low_does_not_pass_high_limit_kwarg(
     call_kwargs = mock_api.set_holding_price_limit.call_args.kwargs
     assert "low_limit" not in call_kwargs
     assert call_kwargs.get("high_limit") == 250.0
+
+
+async def test_holding_limit_number_set_to_zero_clears_limit(hass: HomeAssistant, mock_api) -> None:
+    """Setting the number to 0 (its native_min_value) must clear the limit on the backend (sent
+    as low_limit=None), not store a literal 0 threshold — a High Limit of 0 would otherwise fire
+    immediately, since price is always >= 0."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    assert row["low_limit"] is not None
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "low_limit")
+    registry.async_update_entity(entity.entity_id, disabled_by=None)
+    await hass.async_block_till_done()
+    with patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api,
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_api.set_holding_price_limit.reset_mock()
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": entity.entity_id, "value": 0},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    mock_api.set_holding_price_limit.assert_awaited_once_with(row["account_id"], row["ticker"], low_limit=None)
+
+
+async def test_holding_limit_number_native_value_defaults_to_zero_when_unset(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A never-set (or cleared) limit displays as 0 rather than 'unknown', matching the
+    0-means-clear convention in both directions."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    assert row["high_limit"] is None
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "high_limit")
+    registry.async_update_entity(entity.entity_id, disabled_by=None)
+    await hass.async_block_till_done()
+    with patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api,
+    ):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get(entity.entity_id)
+    assert state is not None
+    assert float(state.state) == 0

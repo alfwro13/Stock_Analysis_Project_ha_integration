@@ -11,6 +11,8 @@ from .const import API_MAX_RETRIES, API_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
+_UNSET: Any = object()
+
 
 class StockAnalysisAPIError(Exception):
     """General API error (network failure, non-200 non-401 response)."""
@@ -135,15 +137,19 @@ class StockAnalysisAPI:
         return await self._get("/api/macro-conditions")
 
     async def set_holding_price_limit(
-        self, account_id: int, ticker: str, low_limit: float | None = None, high_limit: float | None = None
+        self, account_id: int, ticker: str, low_limit: float | None = _UNSET, high_limit: float | None = _UNSET
     ) -> dict[str, Any]:
-        """Set one holding's low and/or high price alert limit. Only the kwarg(s) actually passed
-        are included in the request body, so the backend's partial-update semantics are preserved
-        — setting a Low Limit never clears an already-set High Limit and vice versa."""
+        """Set and/or clear one holding's low/high price alert limit. Only the kwarg(s) actually
+        passed by the caller are included in the request body, so the backend's partial-update
+        semantics are preserved — setting a Low Limit never touches an already-set High Limit and
+        vice versa. Unlike a plain `None` default, the `_UNSET` sentinel lets a caller distinguish
+        "don't touch this field" (omit it) from "clear this field" (pass `None` explicitly, which
+        the backend stores as NULL) — mirrors the main app's own Stock Detail page convention where
+        a blank/zero input clears a target."""
         body: dict[str, Any] = {"account_id": account_id, "ticker": ticker}
-        if low_limit is not None:
+        if low_limit is not _UNSET:
             body["low_limit"] = low_limit
-        if high_limit is not None:
+        if high_limit is not _UNSET:
             body["high_limit"] = high_limit
         return await self._post("/api/accounts/holding-price-limit", json_body=body)
 
