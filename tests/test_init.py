@@ -73,6 +73,7 @@ EXPECTED_UNIQUE_IDS = [
     "sap_treasury_auction_demand_{eid}",
     "sap_fear_greed_index_{eid}",
     "sap_market_index_^GSPC_{eid}",
+    "sap_market_index_ES=F_{eid}",
     "sap_market_index_^FTSE_{eid}",
 ]
 
@@ -100,7 +101,7 @@ async def test_platform_entity_counts(hass: HomeAssistant, mock_api) -> None:
     for e in entries:
         by_platform[e.domain] = by_platform.get(e.domain, 0) + 1
 
-    assert by_platform.get("sensor") == 48  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts + 7 market health + 2 markets
+    assert by_platform.get("sensor") == 49  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts + 7 market health + 3 markets (S&P spot+future, FTSE)
     assert by_platform.get("binary_sensor") == 5
     assert by_platform.get("switch") == 1
     assert by_platform.get("number") == 7  # 1 refresh interval + 3 holdings x 2 limit numbers
@@ -569,7 +570,7 @@ async def test_prune_orphans_removes_deleted_market_index_entity_keeps_device_wi
     assert len([
         e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.unique_id.startswith("sap_market_index_")
-    ]) == 2
+    ]) == 3
 
     one_ticker_payload = {
         "status": "success",
@@ -587,7 +588,10 @@ async def test_prune_orphans_removes_deleted_market_index_entity_keeps_device_wi
         e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.unique_id.startswith("sap_market_index_")
     ]
-    assert {e.unique_id for e in remaining} == {f"sap_market_index_^GSPC_{entry.entry_id}"}
+    assert {e.unique_id for e in remaining} == {
+        f"sap_market_index_^GSPC_{entry.entry_id}",
+        f"sap_market_index_ES=F_{entry.entry_id}",
+    }
     assert device_registry.async_get_device(
         identifiers={(DOMAIN, f"sap_markets_{entry.entry_id}")}
     ) is not None
@@ -606,7 +610,7 @@ async def test_disabling_show_markets_via_reload_auto_removes_entities_and_devic
         e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.unique_id.startswith("sap_market_index_")
     ]
-    assert len(entities_before) == 2
+    assert len(entities_before) == 3
     assert device_registry.async_get_device(
         identifiers={(DOMAIN, f"sap_markets_{entry.entry_id}")}
     ) is not None

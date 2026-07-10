@@ -657,19 +657,21 @@ def _market_index_entities(registry: er.EntityRegistry, entry_id: str) -> list[e
     ]
 
 
-async def test_two_tickers_create_2_sensors_on_shared_markets_device(
+async def test_dual_and_plain_tickers_create_3_sensors_on_shared_markets_device(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """Both tiles in the sample payload create one sensor each, sharing one "Markets" device,
-    via_device-linked to the Portfolio device."""
+    """The dual-instrument S&P 500 tile creates two independent sensors (spot + future); the
+    plain FTSE tile creates one — 3 total, all sharing one "Markets" device, via_device-linked
+    to the Portfolio device."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
 
     entities = _market_index_entities(registry, entry.entry_id)
-    assert len(entities) == 2
+    assert len(entities) == 3
     assert {e.unique_id for e in entities} == {
         f"sap_market_index_^GSPC_{entry.entry_id}",
+        f"sap_market_index_ES=F_{entry.entry_id}",
         f"sap_market_index_^FTSE_{entry.entry_id}",
     }
 
@@ -680,73 +682,109 @@ async def test_two_tickers_create_2_sensors_on_shared_markets_device(
         assert entity.device_id == device.id
 
 
-async def test_market_index_sensor_value_and_attributes(hass: HomeAssistant, mock_api) -> None:
-    """State is the live price; attributes cover change, session status, region, exchange."""
+async def test_plain_ticker_sensor_value_and_attributes(hass: HomeAssistant, mock_api) -> None:
+    """State is the live price; attributes cover change, session status, region, exchange. No
+    is_active attribute for a plain (non-dual-instrument) ticker."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
 
     entity = next(
         e
         for e in er.async_entries_for_config_entry(registry, entry.entry_id)
-        if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}"
+        if e.unique_id == f"sap_market_index_^FTSE_{entry.entry_id}"
     )
     state = hass.states.get(entity.entity_id)
     assert state is not None
-    assert float(state.state) == 5645.20
-    assert state.attributes.get("ticker") == "^GSPC"
-    assert state.attributes.get("change_pts") == 12.30
-    assert state.attributes.get("change_pct") == 0.22
-    assert state.attributes.get("is_positive") is True
-    assert state.attributes.get("status") == "open"
-    assert state.attributes.get("region") == "US"
-    assert state.attributes.get("exchange") == "NYSE"
-    assert state.attributes.get("currency") == "USD"
+    assert float(state.state) == 8210.55
+    assert state.attributes.get("ticker") == "^FTSE"
+    assert state.attributes.get("change_pts") == -5.10
+    assert state.attributes.get("change_pct") == -0.06
+    assert state.attributes.get("is_positive") is False
+    assert state.attributes.get("status") == "closed"
+    assert state.attributes.get("region") == "Europe"
+    assert state.attributes.get("exchange") == "LSE"
+    assert state.attributes.get("currency") == "GBP"
     assert state.attributes.get("asset_type") == "Index"
-    assert state.attributes.get("is_future") is False
+    assert "is_active" not in state.attributes
 
 
-async def test_market_index_sensor_unique_id_stable_across_spot_future_swap(
+async def test_spot_and_future_sensors_are_independent_and_simultaneously_populated(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """A dual-instrument index's unique_id must not change when the backend resolves it to its
-    paired futures ticker instead of spot — only registry_ticker (stable) keys the entity,
-    never the tile's resolved 'ticker' field."""
+    """Both the spot and futures sensor for a dual-instrument index show their own live price
+    at the same time — no swapping, both always populated, is_active distinguishing which side
+    the backend currently treats as primary."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
 
-    future_payload = {
+    spot_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}"
+    )
+    future_entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_market_index_ES=F_{entry.entry_id}"
+    )
+    spot_state = hass.states.get(spot_entity.entity_id)
+    future_state = hass.states.get(future_entity.entity_id)
+
+    assert float(spot_state.state) == 5645.20
+    assert spot_state.attributes.get("ticker") == "^GSPC"
+    assert spot_state.attributes.get("is_active") is True
+    # Both sensors share the same session status/region/exchange from the parent tile.
+    assert spot_state.attributes.get("status") == "open"
+    assert spot_state.attributes.get("region") == "US"
+
+    assert float(future_state.state) == 5648.00
+    assert future_state.attributes.get("ticker") == "ES=F"
+    assert future_state.attributes.get("change_pts") == 10.10
+    assert future_state.attributes.get("is_active") is False
+    assert future_state.attributes.get("status") == "open"
+    assert future_state.attributes.get("region") == "US"
+
+
+async def test_spot_and_future_sensor_identities_stay_stable_across_active_side_flip(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Flipping which side is "active" (e.g. NYSE closes) must not destroy/recreate either
+    sensor — both unique_ids are fixed per-instrument, never dependent on which one is active."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    flipped_tile = dict(
+        SAMPLE_MARKETS["data"]["regions"][0]["tiles"][0],
+        market_state="pre",
+        dual_instrument={
+            "spot": {**SAMPLE_MARKETS["data"]["regions"][0]["tiles"][0]["dual_instrument"]["spot"], "is_active": False},
+            "future": {**SAMPLE_MARKETS["data"]["regions"][0]["tiles"][0]["dual_instrument"]["future"], "is_active": True},
+        },
+    )
+    flipped_payload = {
         "status": "success",
         "data": {
             "view": "dynamic",
             "regions": [
-                {
-                    "region": "US",
-                    "state": "pre",
-                    "tiles": [
-                        dict(
-                            SAMPLE_MARKETS["data"]["regions"][0]["tiles"][0],
-                            ticker="ES=F", display_name="S&P 500 Futures",
-                            is_future=True, market_state="pre",
-                        ),
-                    ],
-                },
+                {"region": "US", "state": "pre", "tiles": [flipped_tile]},
+                SAMPLE_MARKETS["data"]["regions"][1],
             ],
         },
     }
-    entry.runtime_data.api.get_markets = AsyncMock(return_value=future_payload)
+    entry.runtime_data.api.get_markets = AsyncMock(return_value=flipped_payload)
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
 
-    entity = next(
-        e
-        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
-        if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}"
-    )
-    state = hass.states.get(entity.entity_id)
-    assert state.attributes.get("ticker") == "ES=F"
-    assert state.attributes.get("is_future") is True
-    # No second entity was created for the futures symbol.
-    assert len(_market_index_entities(registry, entry.entry_id)) == 2
+    entities_after = _market_index_entities(registry, entry.entry_id)
+    assert {e.unique_id for e in entities_after} == {
+        f"sap_market_index_^GSPC_{entry.entry_id}",
+        f"sap_market_index_ES=F_{entry.entry_id}",
+        f"sap_market_index_^FTSE_{entry.entry_id}",
+    }
+    spot_entity = next(e for e in entities_after if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}")
+    future_entity = next(e for e in entities_after if e.unique_id == f"sap_market_index_ES=F_{entry.entry_id}")
+    assert hass.states.get(spot_entity.entity_id).attributes.get("is_active") is False
+    assert hass.states.get(future_entity.entity_id).attributes.get("is_active") is True
 
 
 async def test_zero_markets_tickers_creates_no_market_sensors(hass: HomeAssistant, mock_api) -> None:

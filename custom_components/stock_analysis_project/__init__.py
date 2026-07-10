@@ -308,11 +308,14 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             })
 
         show_markets = self.entry.data.get(CONF_SHOW_MARKETS, True)
-        valid_registry_tickers: set[str] = set()
         if show_markets:
-            valid_registry_tickers = {tile["registry_ticker"] for tile in self.market_tiles()}
-        for registry_ticker in valid_registry_tickers:
-            valid_unique_ids.add(f"sap_market_index_{registry_ticker}_{entry_id}")
+            for tile in self.market_tiles():
+                dual = tile.get("dual_instrument")
+                if dual:
+                    valid_unique_ids.add(f"sap_market_index_{dual['spot']['ticker']}_{entry_id}")
+                    valid_unique_ids.add(f"sap_market_index_{dual['future']['ticker']}_{entry_id}")
+                else:
+                    valid_unique_ids.add(f"sap_market_index_{tile['registry_ticker']}_{entry_id}")
 
         for entity_entry in entries:
             if entity_entry.unique_id not in valid_unique_ids:

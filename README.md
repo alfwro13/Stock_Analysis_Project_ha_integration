@@ -172,20 +172,20 @@ One shared **Market Health** device, linked via `via_device` to the Stock Analys
 
 One shared **Markets** device, linked via `via_device` to the Stock Analysis Project Portfolio device, holding one sensor per tracked global index, commodity, FX pair, and rate (the same set shown on the main app's own `/markets` page) — dynamic per-item entities, unlike Market Health's fixed 7. Controlled by the **Show Markets** config option (default on); disabling it via Reconfigure removes every Markets sensor and the device itself on the resulting reload. Each sensor's friendly name is the registry's own display name (e.g. "FTSE 100", "S&P 500"), device-prefixed as standard for any entity attached to a device (e.g. "Markets FTSE 100").
 
-Five of these tickers (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225) auto-swap their live price between a spot instrument and a paired futures instrument depending on session — the sensor's identity stays stable across that swap (it never re-creates itself), only its `ticker`/`is_future` attributes and state change.
+Five of these tickers (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225) have a paired futures instrument — these get **two independent sensors** (e.g. "Markets US S&P 500" and "Markets S&P 500 Futures"), not one sensor whose value swaps between spot and futures depending on session, so both prices stay readable — and graphable — at the same time.
 
 | Field | Where | Description |
 |---|---|---|
-| State | sensor state | Live price/level of the ticker currently in view for this instrument (spot or, outside the spot exchange's regular session, its paired future) |
-| `ticker` | attribute | The resolved ticker symbol currently backing the state (may be a futures symbol — see `is_future`) |
+| State | sensor state | This instrument's own live price/level (spot sensors always show spot; futures sensors always show futures) |
+| `ticker` | attribute | This instrument's own ticker symbol (fixed per sensor — never changes) |
 | `change_pts`, `change_pct` | attribute | Change from the prior close, in points and percent |
 | `is_positive` | attribute | Whether `change_pts`/`change_pct` is positive |
-| `status` | attribute | Session status: `open`, `pre`, `post`, or `closed` — `post` is only available for exchanges the backend proxies via a live Yahoo index quote (NYSE, LSE, XETRA, TSE, HKEX, SSE, ASX, Euronext); other exchanges report `open`/`closed` only |
+| `status` | attribute | Session status: `open`, `pre`, `post`, or `closed` — `post` is only available for exchanges the backend proxies via a live Yahoo index quote (NYSE, LSE, XETRA, TSE, HKEX, SSE, ASX, Euronext); other exchanges report `open`/`closed` only. Shared between a spot/futures pair (both belong to the same underlying index; the backend has no separate trading-hours model for the futures leg) |
 | `region` | attribute | `US`, `Europe`, `Asia`, or `Commodities_FX` — the backend's own coarse grouping, not a true country |
 | `exchange` | attribute | The instrument's home exchange key (e.g. `NYSE`, `LSE`), `null` for FX pairs/rates with no single exchange |
 | `currency` | attribute | The instrument's quote currency |
 | `asset_type` | attribute | `Index`, `FX`, `Commodity`, or `Rate` |
-| `is_future` | attribute | Whether the state is currently showing the paired futures instrument instead of spot |
+| `is_active` | attribute | Spot/futures sensors only — whether the main app's own `/markets` page is currently displaying *this* instrument (`true`) or its sibling (`false`); absent on plain (non-dual-instrument) tickers |
 
 ## Support & Disclaimer
 

@@ -279,6 +279,18 @@ SAMPLE_MARKETS = {
                         "is_positive": True, "invert_color": False, "asset_type": "Index",
                         "sentiment_score": 0.15, "market_state": "open", "is_stale": False,
                         "stale_data": False, "needs_refresh": False, "sparkline": [],
+                        "dual_instrument": {
+                            "spot": {
+                                "ticker": "^GSPC", "display_name": "US S&P 500", "price": 5645.20,
+                                "change_pts": 12.30, "change_pct": 0.22, "is_positive": True,
+                                "is_active": True,
+                            },
+                            "future": {
+                                "ticker": "ES=F", "display_name": "S&P 500 Futures", "price": 5648.00,
+                                "change_pts": 10.10, "change_pct": 0.18, "is_positive": True,
+                                "is_active": False,
+                            },
+                        },
                     },
                 ],
             },
@@ -293,6 +305,7 @@ SAMPLE_MARKETS = {
                         "is_positive": False, "invert_color": False, "asset_type": "Index",
                         "sentiment_score": -0.05, "market_state": "closed", "is_stale": True,
                         "stale_data": False, "needs_refresh": True, "sparkline": [],
+                        "dual_instrument": None,
                     },
                 ],
             },

@@ -262,7 +262,9 @@ async def async_setup_entry(
     @callback
     def _update_market_sensors() -> None:
         """Add a sensor for any tracked market index/commodity/FX/rate ticker not yet
-        represented as an entity."""
+        represented as an entity. A dual-instrument ticker (one with a spot/futures pairing)
+        gets two independent sensors — spot and future — rather than one sensor whose value
+        swaps between them, so both prices are readable simultaneously."""
         if not config_entry.data.get(CONF_SHOW_MARKETS, True):
             return
         if not coordinator.data:
@@ -270,12 +272,27 @@ async def async_setup_entry(
         new_entities: list[SensorEntity] = []
         for tile in coordinator.market_tiles():
             registry_ticker = tile["registry_ticker"]
-            unique_id = f"sap_market_index_{registry_ticker}_{config_entry.entry_id}"
-            if unique_id not in known_market_ids:
-                known_market_ids.add(unique_id)
-                new_entities.append(
-                    StockAnalysisMarketIndexSensor(coordinator, config_entry, registry_ticker)
-                )
+            dual = tile.get("dual_instrument")
+            if dual:
+                for sub_key in ("spot", "future"):
+                    instrument_ticker = dual[sub_key]["ticker"]
+                    unique_id = f"sap_market_index_{instrument_ticker}_{config_entry.entry_id}"
+                    if unique_id not in known_market_ids:
+                        known_market_ids.add(unique_id)
+                        new_entities.append(
+                            StockAnalysisMarketIndexSensor(
+                                coordinator, config_entry, registry_ticker, instrument_ticker, sub_key
+                            )
+                        )
+            else:
+                unique_id = f"sap_market_index_{registry_ticker}_{config_entry.entry_id}"
+                if unique_id not in known_market_ids:
+                    known_market_ids.add(unique_id)
+                    new_entities.append(
+                        StockAnalysisMarketIndexSensor(
+                            coordinator, config_entry, registry_ticker, registry_ticker, None
+                        )
+                    )
         if new_entities:
             async_add_entities(new_entities)
 
@@ -625,21 +642,29 @@ class StockAnalysisFearGreedSensor(StockAnalysisMarketHealthSensor):
 
 
 class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
-    """One sensor per tracked global index/commodity/FX/rate ticker (Phase 6), state is the
-    live price/level, all other tile fields (change, session status, region, exchange) exposed
-    as attributes rather than separate entities — same "one entity with many attributes"
-    convention as StockAnalysisHoldingSensor. Lives on the shared "Markets" device alongside
-    every other tracked ticker. No device_class/unit is set: unlike the portfolio/account
-    sensors this group spans indexes (points), FX pairs, commodities, and yields (%), none of
-    which is a single ISO 4217 currency amount.
+    """One sensor per tracked global index/commodity/FX/rate instrument (Phase 6), state is the
+    live price/level, all other fields (change, session status, region, exchange) exposed as
+    attributes rather than separate entities — same "one entity with many attributes" convention
+    as StockAnalysisHoldingSensor. Lives on the shared "Markets" device alongside every other
+    tracked ticker. No device_class/unit is set: unlike the portfolio/account sensors this group
+    spans indexes (points), FX pairs, commodities, and yields (%), none of which is a single ISO
+    4217 currency amount.
 
-    Keyed by the registry's own stable "registry_ticker", never the tile's resolved "ticker" —
-    5 dual-instrument indexes (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225) swap their
-    resolved ticker between a spot symbol and a paired futures symbol (e.g. ^GSPC <-> ES=F)
-    depending on session, and keying identity off that would churn the entity's unique_id (and
-    thus its entity_id/history) every time the session flips — see markets_engine.resolve_tile()
-    and the "registry_ticker" field added to assemble_markets_payload()'s tile payload for this
-    exact reason."""
+    A dual-instrument index (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225 — each with a
+    spot/futures pairing, e.g. ^GSPC + ES=F) gets **two independent sensors**, not one whose
+    value swaps between spot and futures depending on session — the operator explicitly wants
+    both prices readable simultaneously (e.g. to compare spot vs. futures directly), not a
+    single tile that hides whichever one isn't "in session" right now. `sub_key` selects which:
+    `None` for a plain ticker (all fields read from the tile's own top level), `"spot"`/`"future"`
+    for one side of a dual-instrument pair (price/change/ticker/name read from
+    `tile["dual_instrument"][sub_key]`; region/exchange/currency/asset_type/status are shared
+    from the tile's top level, since both instruments belong to the same underlying index).
+    `instrument_ticker` (the actual ticker backing `unique_id`) is always stable on its own —
+    for `sub_key=None` it's the registry row's primary ticker; for `"spot"`/`"future"` it's that
+    side's own fixed ticker (row["ticker"]/row["future_ticker"]) — neither ever changes, since
+    each sensor now represents exactly one instrument rather than a value that resolves between
+    two. `registry_ticker` is kept separately to relocate the tile (`assemble_markets_payload()`
+    tiles are still keyed by the registry row, not by instrument)."""
 
     _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -650,12 +675,15 @@ class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
         coordinator: StockAnalysisDataUpdateCoordinator,
         config_entry: ConfigEntry,
         registry_ticker: str,
+        instrument_ticker: str,
+        sub_key: str | None,
     ) -> None:
-        """Initialize the per-ticker Markets sensor."""
+        """Initialize the per-instrument Markets sensor."""
         super().__init__(coordinator)
         self.config_entry = config_entry
         self._registry_ticker = registry_ticker
-        self._attr_unique_id = f"sap_market_index_{registry_ticker}_{config_entry.entry_id}"
+        self._sub_key = sub_key
+        self._attr_unique_id = f"sap_market_index_{instrument_ticker}_{config_entry.entry_id}"
         self._attr_device_info = markets_device_info(config_entry)
 
     @property
@@ -668,32 +696,51 @@ class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
         return {}
 
     @property
-    def name(self) -> str | None:
-        """Return the registry's own display_name for this ticker, resolved from the latest
-        fetch rather than cached at construction time (a spot/future auto-swap can change which
-        ticker resolves for this display_name between polls)."""
-        return self._tile.get("display_name") or self._registry_ticker
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the ticker's live price/level."""
-        return self._tile.get("price")
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return daily change, session status, region, exchange, and asset metadata."""
+    def _instrument(self) -> dict[str, Any]:
+        """Return this sensor's own instrument data — the tile's top level for a plain ticker,
+        or the matching side of tile["dual_instrument"] for a spot/future sensor."""
         tile = self._tile
         if not tile:
             return {}
-        return {
-            "ticker": tile.get("ticker"),
-            "change_pts": tile.get("change_pts"),
-            "change_pct": tile.get("change_pct"),
-            "is_positive": tile.get("is_positive"),
+        if self._sub_key is None:
+            return tile
+        return (tile.get("dual_instrument") or {}).get(self._sub_key) or {}
+
+    @property
+    def name(self) -> str | None:
+        """Return this instrument's own display_name, resolved from the latest fetch rather
+        than cached at construction time."""
+        inst = self._instrument
+        return inst.get("display_name") or inst.get("ticker") or self._registry_ticker
+
+    @property
+    def native_value(self) -> float | None:
+        """Return this instrument's live price/level."""
+        return self._instrument.get("price")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return daily change, session status, region, exchange, and asset metadata. Session
+        status/region/exchange/currency/asset_type are shared from the tile's top level even for
+        a spot/future sensor, since both instruments belong to the same underlying index and the
+        backend has no separate trading-hours model for the futures leg."""
+        tile = self._tile
+        inst = self._instrument
+        if not tile or not inst:
+            return {}
+        attrs = {
+            "ticker": inst.get("ticker"),
+            "change_pts": inst.get("change_pts"),
+            "change_pct": inst.get("change_pct"),
+            "is_positive": inst.get("is_positive"),
             "status": tile.get("market_state"),
             "region": tile.get("region"),
             "exchange": tile.get("exchange"),
             "currency": tile.get("currency"),
             "asset_type": tile.get("asset_type"),
-            "is_future": tile.get("is_future"),
         }
+        if self._sub_key is not None:
+            # Which side of the spot/futures pair is currently the "primary" instrument per
+            # markets_engine.resolve_tile() — e.g. NYSE open means spot is active, futures isn't.
+            attrs["is_active"] = inst.get("is_active")
+        return attrs
