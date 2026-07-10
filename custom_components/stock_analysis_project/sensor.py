@@ -20,11 +20,13 @@ from .const import (
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
     CONF_SHOW_MARKET_HEALTH,
+    CONF_SHOW_MARKETS,
     CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
     account_holdings_device_info,
     market_health_device_info,
+    markets_device_info,
     other_accounts_device_info,
     portfolio_device_info,
 )
@@ -254,6 +256,31 @@ async def async_setup_entry(
 
     config_entry.async_on_unload(coordinator.async_add_listener(_update_other_account_sensors))
     _update_other_account_sensors()
+
+    known_market_ids: set[str] = set()
+
+    @callback
+    def _update_market_sensors() -> None:
+        """Add a sensor for any tracked market index/commodity/FX/rate ticker not yet
+        represented as an entity."""
+        if not config_entry.data.get(CONF_SHOW_MARKETS, True):
+            return
+        if not coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for tile in coordinator.market_tiles():
+            registry_ticker = tile["registry_ticker"]
+            unique_id = f"sap_market_index_{registry_ticker}_{config_entry.entry_id}"
+            if unique_id not in known_market_ids:
+                known_market_ids.add(unique_id)
+                new_entities.append(
+                    StockAnalysisMarketIndexSensor(coordinator, config_entry, registry_ticker)
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(_update_market_sensors))
+    _update_market_sensors()
 
 
 class StockAnalysisBaseSensor(CoordinatorEntity, SensorEntity):
@@ -595,3 +622,78 @@ class StockAnalysisFearGreedSensor(StockAnalysisMarketHealthSensor):
     0-100 — everything else in this group is a text label."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
+
+
+class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
+    """One sensor per tracked global index/commodity/FX/rate ticker (Phase 6), state is the
+    live price/level, all other tile fields (change, session status, region, exchange) exposed
+    as attributes rather than separate entities — same "one entity with many attributes"
+    convention as StockAnalysisHoldingSensor. Lives on the shared "Markets" device alongside
+    every other tracked ticker. No device_class/unit is set: unlike the portfolio/account
+    sensors this group spans indexes (points), FX pairs, commodities, and yields (%), none of
+    which is a single ISO 4217 currency amount.
+
+    Keyed by the registry's own stable "registry_ticker", never the tile's resolved "ticker" —
+    5 dual-instrument indexes (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225) swap their
+    resolved ticker between a spot symbol and a paired futures symbol (e.g. ^GSPC <-> ES=F)
+    depending on session, and keying identity off that would churn the entity's unique_id (and
+    thus its entity_id/history) every time the session flips — see markets_engine.resolve_tile()
+    and the "registry_ticker" field added to assemble_markets_payload()'s tile payload for this
+    exact reason."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: StockAnalysisDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        registry_ticker: str,
+    ) -> None:
+        """Initialize the per-ticker Markets sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._registry_ticker = registry_ticker
+        self._attr_unique_id = f"sap_market_index_{registry_ticker}_{config_entry.entry_id}"
+        self._attr_device_info = markets_device_info(config_entry)
+
+    @property
+    def _tile(self) -> dict[str, Any]:
+        """Return this sensor's tile from the latest /api/markets fetch, or {} if not found
+        yet (e.g. the ticker was disabled in the registry between polls)."""
+        for tile in self.coordinator.market_tiles():
+            if tile.get("registry_ticker") == self._registry_ticker:
+                return tile
+        return {}
+
+    @property
+    def name(self) -> str | None:
+        """Return the registry's own display_name for this ticker, resolved from the latest
+        fetch rather than cached at construction time (a spot/future auto-swap can change which
+        ticker resolves for this display_name between polls)."""
+        return self._tile.get("display_name") or self._ticker
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the ticker's live price/level."""
+        return self._tile.get("price")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return daily change, session status, region, exchange, and asset metadata."""
+        tile = self._tile
+        if not tile:
+            return {}
+        return {
+            "ticker": tile.get("ticker"),
+            "change_pts": tile.get("change_pts"),
+            "change_pct": tile.get("change_pct"),
+            "is_positive": tile.get("is_positive"),
+            "status": tile.get("market_state"),
+            "region": tile.get("region"),
+            "exchange": tile.get("exchange"),
+            "currency": tile.get("currency"),
+            "asset_type": tile.get("asset_type"),
+            "is_future": tile.get("is_future"),
+        }

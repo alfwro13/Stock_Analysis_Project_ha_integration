@@ -206,6 +206,7 @@ async def test_user_step_defaults_show_toggles_to_true(hass: HomeAssistant, mock
     assert result["data"].get("show_holdings", True) is True
     assert result["data"].get("show_other_accounts", True) is True
     assert result["data"].get("show_market_health", True) is True
+    assert result["data"].get("show_markets", True) is True
     # Off by default: the backend already gates any live-price work on its own market-open/
     # quote-settled checks, so there's no cost to polling on every tick regardless of market hours.
     assert result["data"].get("skip_refresh_when_markets_closed", False) is False
@@ -313,6 +314,32 @@ async def test_reconfigure_can_disable_show_market_health(
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert mock_config_entry.data["show_market_health"] is False
+
+
+async def test_reconfigure_can_disable_show_markets(
+    hass: HomeAssistant, mock_config_entry, mock_api_for_flow
+) -> None:
+    """Reconfigure flow can flip show_markets to False."""
+    mock_config_entry.add_to_hass(hass)
+
+    updated_input = {**SAMPLE_CONFIG, "show_markets": False}
+
+    with patch(
+        "custom_components.stock_analysis_project.config_flow.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ), patch(
+        "custom_components.stock_analysis_project.StockAnalysisAPI",
+        return_value=mock_api_for_flow,
+    ):
+        result = await mock_config_entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=updated_input
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert mock_config_entry.data["show_markets"] is False
 
 
 async def test_reconfigure_can_disable_skip_refresh_when_markets_closed(

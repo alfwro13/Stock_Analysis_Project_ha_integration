@@ -13,6 +13,7 @@
           "show_holdings": "Show Holdings",
           "show_other_accounts": "Show Other Accounts",
           "show_market_health": "Show Market Health",
+          "show_markets": "Show Markets",
           "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
@@ -25,6 +26,7 @@
           "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
           "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
           "show_market_health": "Create 7 sensors on a shared \"Market Health\" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index.",
+          "show_markets": "Create a sensor for every tracked global index, commodity, FX pair, and rate, on a shared \"Markets\" device — price as state, daily change/session status/region/exchange as attributes.",
           "skip_refresh_when_markets_closed": "Reduce polling further by reusing the last-known portfolio/account/holdings values while both UK and US markets are closed, instead of re-fetching every interval. Off by default: the backend already skips any live-price work on its own when markets are closed, so leaving this off just keeps every poll current with anything the backend updates overnight (e.g. the nightly snapshot). Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }
@@ -41,6 +43,7 @@
           "show_holdings": "Show Holdings",
           "show_other_accounts": "Show Other Accounts",
           "show_market_health": "Show Market Health",
+          "show_markets": "Show Markets",
           "skip_refresh_when_markets_closed": "Skip Refresh When Markets Closed",
           "update_interval": "Update Interval"
         },
@@ -53,6 +56,7 @@
           "show_holdings": "Create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account.",
           "show_other_accounts": "Create a sensor for each Pension/House account, on a shared \"Other Accounts\" device.",
           "show_market_health": "Create 7 sensors on a shared \"Market Health\" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index.",
+          "show_markets": "Create a sensor for every tracked global index, commodity, FX pair, and rate, on a shared \"Markets\" device — price as state, daily change/session status/region/exchange as attributes.",
           "skip_refresh_when_markets_closed": "Reduce polling further by reusing the last-known portfolio/account/holdings values while both UK and US markets are closed, instead of re-fetching every interval. Off by default: the backend already skips any live-price work on its own when markets are closed, so leaving this off just keeps every poll current with anything the backend updates overnight (e.g. the nightly snapshot). Other Accounts is never skipped this way.",
           "update_interval": "How often to update portfolio data (in minutes, min: 1, max: 1440)"
         }

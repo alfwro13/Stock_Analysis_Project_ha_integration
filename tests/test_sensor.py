@@ -19,6 +19,8 @@ from .conftest import (
     SAMPLE_MACRO_CONDITIONS_EMPTY,
     SAMPLE_MARKET_REGIME,
     SAMPLE_MARKET_REGIME_EMPTY,
+    SAMPLE_MARKETS,
+    SAMPLE_MARKETS_EMPTY,
     SAMPLE_OTHER_ACCOUNTS,
     SAMPLE_OTHER_ACCOUNTS_EMPTY,
 )
@@ -640,3 +642,126 @@ async def test_show_market_health_disabled_skips_fetch_and_entities(
     mock_api.get_market_regime.assert_not_awaited()
     mock_api.get_macro_conditions.assert_not_awaited()
     assert _market_health_entities(registry, entry.entry_id) == []
+
+
+# ---------------------------------------------------------------------------
+# Markets sensors (Phase 6)
+# ---------------------------------------------------------------------------
+
+def _market_index_entities(registry: er.EntityRegistry, entry_id: str) -> list[er.RegistryEntry]:
+    """Return only the Markets sensor entities."""
+    return [
+        e
+        for e in er.async_entries_for_config_entry(registry, entry_id)
+        if e.domain == "sensor" and e.unique_id.startswith("sap_market_index_")
+    ]
+
+
+async def test_two_tickers_create_2_sensors_on_shared_markets_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Both tiles in the sample payload create one sensor each, sharing one "Markets" device,
+    via_device-linked to the Portfolio device."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    entities = _market_index_entities(registry, entry.entry_id)
+    assert len(entities) == 2
+    assert {e.unique_id for e in entities} == {
+        f"sap_market_index_^GSPC_{entry.entry_id}",
+        f"sap_market_index_^FTSE_{entry.entry_id}",
+    }
+
+    device = device_registry.async_get_device(identifiers={(DOMAIN, f"sap_markets_{entry.entry_id}")})
+    assert device is not None
+    assert device.name == "Markets"
+    for entity in entities:
+        assert entity.device_id == device.id
+
+
+async def test_market_index_sensor_value_and_attributes(hass: HomeAssistant, mock_api) -> None:
+    """State is the live price; attributes cover change, session status, region, exchange."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert state is not None
+    assert float(state.state) == 5645.20
+    assert state.attributes.get("ticker") == "^GSPC"
+    assert state.attributes.get("change_pts") == 12.30
+    assert state.attributes.get("change_pct") == 0.22
+    assert state.attributes.get("is_positive") is True
+    assert state.attributes.get("status") == "open"
+    assert state.attributes.get("region") == "US"
+    assert state.attributes.get("exchange") == "NYSE"
+    assert state.attributes.get("currency") == "USD"
+    assert state.attributes.get("asset_type") == "Index"
+    assert state.attributes.get("is_future") is False
+
+
+async def test_market_index_sensor_unique_id_stable_across_spot_future_swap(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A dual-instrument index's unique_id must not change when the backend resolves it to its
+    paired futures ticker instead of spot — only registry_ticker (stable) keys the entity,
+    never the tile's resolved 'ticker' field."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    future_payload = {
+        "status": "success",
+        "data": {
+            "view": "dynamic",
+            "regions": [
+                {
+                    "region": "US",
+                    "state": "pre",
+                    "tiles": [
+                        dict(
+                            SAMPLE_MARKETS["data"]["regions"][0]["tiles"][0],
+                            ticker="ES=F", display_name="S&P 500 Futures",
+                            is_future=True, market_state="pre",
+                        ),
+                    ],
+                },
+            ],
+        },
+    }
+    entry.runtime_data.api.get_markets = AsyncMock(return_value=future_payload)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    entity = next(
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == f"sap_market_index_^GSPC_{entry.entry_id}"
+    )
+    state = hass.states.get(entity.entity_id)
+    assert state.attributes.get("ticker") == "ES=F"
+    assert state.attributes.get("is_future") is True
+    # No second entity was created for the futures symbol.
+    assert len(_market_index_entities(registry, entry.entry_id)) == 2
+
+
+async def test_zero_markets_tickers_creates_no_market_sensors(hass: HomeAssistant, mock_api) -> None:
+    mock_api.get_markets = AsyncMock(return_value=SAMPLE_MARKETS_EMPTY)
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    assert _market_index_entities(registry, entry.entry_id) == []
+
+
+async def test_show_markets_disabled_skips_fetch_and_entities(hass: HomeAssistant, mock_api) -> None:
+    """CONF_SHOW_MARKETS=False means the coordinator never awaits the markets fetch and creates
+    no entities."""
+    data = dict(SAMPLE_CONFIG, show_markets=False)
+    entry = await _setup(hass, mock_api, data=data)
+    registry = er.async_get(hass)
+
+    mock_api.get_markets.assert_not_awaited()
+    assert _market_index_entities(registry, entry.entry_id) == []

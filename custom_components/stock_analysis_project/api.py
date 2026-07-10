@@ -136,6 +136,11 @@ class StockAnalysisAPI:
         """Fetch sovereign-yield threat levels, Treasury auction demand, and Fear & Greed (Phase 5)."""
         return await self._get("/api/macro-conditions")
 
+    async def get_markets(self) -> dict[str, Any]:
+        """Fetch live price/change/session-status for every tracked global index, commodity,
+        FX pair, and rate (Phase 6) — the same data backing the /markets page."""
+        return await self._get("/api/markets")
+
     async def set_holding_price_limit(
         self, account_id: int, ticker: str, low_limit: float | None = _UNSET, high_limit: float | None = _UNSET
     ) -> dict[str, Any]:

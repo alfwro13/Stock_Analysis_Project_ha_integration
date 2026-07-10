@@ -13,6 +13,7 @@ CONF_SHOW_HOLDINGS = "show_holdings"
 CONF_SHOW_OTHER_ACCOUNTS = "show_other_accounts"
 CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED = "skip_refresh_when_markets_closed"
 CONF_SHOW_MARKET_HEALTH = "show_market_health"
+CONF_SHOW_MARKETS = "show_markets"
 
 # Default values
 DEFAULT_NAME = "Stock Analysis Project"
@@ -93,5 +94,20 @@ def market_health_device_info(config_entry) -> dict:
         "name": "Market Health",
         "manufacturer": "Stock Analysis Project",
         "model": "Macro & Sentiment Signals",
+        "via_device": (DOMAIN, f"sap_portfolio_{config_entry.entry_id}"),
+    }
+
+
+def markets_device_info(config_entry) -> dict:
+    """Return the shared device_info dict for the Markets device (Phase 6) — a single fixed
+    device holding one sensor per tracked global index/commodity/FX/rate ticker (dynamic
+    per-item entity set, unlike Market Health's fixed 7), same one-device-for-the-whole-group
+    topology as other_accounts_device_info()/market_health_device_info() above, since tickers
+    have no natural per-item parent grouping of their own."""
+    return {
+        "identifiers": {(DOMAIN, f"sap_markets_{config_entry.entry_id}")},
+        "name": "Markets",
+        "manufacturer": "Stock Analysis Project",
+        "model": "Global Indexes & Commodities",
         "via_device": (DOMAIN, f"sap_portfolio_{config_entry.entry_id}"),
     }

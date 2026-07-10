@@ -48,14 +48,15 @@ It exposes portfolio-wide totals, per-Trading-account metrics, per-holding data 
    - **Show Holdings** — create a Market Value sensor plus Low/High Limit number entities for each holding, in each Trading account. Enabled by default.
    - **Show Other Accounts** — create a sensor for each Pension/House account, on a shared "Other Accounts" device. Enabled by default.
    - **Show Market Health** — create 7 sensors on a shared "Market Health" device: Market Regime, US/UK Market Classification, US 10Y Treasury, UK 10Y Gilt, US Treasury Auction Demand, and the Fear & Greed Index. Enabled by default.
-   - **Skip Refresh When Markets Closed** — while both the UK and US markets are closed, skip re-fetching portfolio/account/holdings data and reuse the last-known values instead, since live prices can't have changed. Other Accounts and Market Health are never skipped this way — neither is driven by live market prices. Enabled by default.
+   - **Show Markets** — create a sensor for every tracked global index, commodity, FX pair, and rate, on a shared "Markets" device. Enabled by default.
+   - **Skip Refresh When Markets Closed** — while both the UK and US markets are closed, skip re-fetching portfolio/account/holdings data and reuse the last-known values instead, since live prices can't have changed. Other Accounts, Market Health, and Markets are never skipped this way — none of them is driven solely by UK/US market hours (Markets spans every global session, Other Accounts is scraper-driven, Market Health is daily-cadence). Enabled by default.
    - **Update Interval** — how often to poll for updated portfolio data, in minutes (default 15, range 1-1440).
 
 The setup form validates the connection live by calling the portfolio-totals endpoint — this confirms both that the API key is valid and that the backend has the required endpoints deployed. You can revisit these same fields later via the integration's **Reconfigure** option — reconfiguring reloads the integration, so turning a "Show ..." toggle off removes its sensors from Home Assistant immediately rather than leaving them behind as unavailable.
 
 ## Entities
 
-Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts share one single "Other Accounts" device, and 7 market-wide macro/sentiment sensors share one single "Market Health" device (both described below).
+Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts share one single "Other Accounts" device, 7 market-wide macro/sentiment sensors share one single "Market Health" device, and every tracked global index/commodity/FX/rate shares one single "Markets" device (all described below).
 
 ### Stock Analysis Project Portfolio (sensors)
 
@@ -166,6 +167,25 @@ One shared **Market Health** device, linked via `via_device` to the Stock Analys
 | UK 10Y Gilt | Same threat-level mapping, based on the UK 10-year Gilt yield | `raw_level`, `yield_velocity_bps`, `uk_gilt_close`, `as_of` |
 | US Treasury Auction Demand | `Healthy` or `Weakness Detected`, based on whether any of the last 6 US Treasury auctions (any maturity, within 30 days) showed weak bid-to-cover or a wide yield tail; `Unknown` if there's no auction in that window to judge | `recent_auctions` (list of the underlying auction rows) |
 | Fear & Greed Index | Numeric, 0-100 (CNN's Fear & Greed Index) | `label` (`Extreme Fear`/`Fear`/`Neutral`/`Greed`/`Extreme Greed`), `as_of` |
+
+### Markets Entities
+
+One shared **Markets** device, linked via `via_device` to the Stock Analysis Project Portfolio device, holding one sensor per tracked global index, commodity, FX pair, and rate (the same set shown on the main app's own `/markets` page) — dynamic per-item entities, unlike Market Health's fixed 7. Controlled by the **Show Markets** config option (default on); disabling it via Reconfigure removes every Markets sensor and the device itself on the resulting reload. Each sensor's friendly name is the registry's own display name (e.g. "FTSE 100", "S&P 500"), device-prefixed as standard for any entity attached to a device (e.g. "Markets FTSE 100").
+
+Five of these tickers (S&P 500, Nasdaq 100, Dow, Russell 2000, Nikkei 225) auto-swap their live price between a spot instrument and a paired futures instrument depending on session — the sensor's identity stays stable across that swap (it never re-creates itself), only its `ticker`/`is_future` attributes and state change.
+
+| Field | Where | Description |
+|---|---|---|
+| State | sensor state | Live price/level of the ticker currently in view for this instrument (spot or, outside the spot exchange's regular session, its paired future) |
+| `ticker` | attribute | The resolved ticker symbol currently backing the state (may be a futures symbol — see `is_future`) |
+| `change_pts`, `change_pct` | attribute | Change from the prior close, in points and percent |
+| `is_positive` | attribute | Whether `change_pts`/`change_pct` is positive |
+| `status` | attribute | Session status: `open`, `pre`, `post`, or `closed` — `post` is only available for exchanges the backend proxies via a live Yahoo index quote (NYSE, LSE, XETRA, TSE, HKEX, SSE, ASX, Euronext); other exchanges report `open`/`closed` only |
+| `region` | attribute | `US`, `Europe`, `Asia`, or `Commodities_FX` — the backend's own coarse grouping, not a true country |
+| `exchange` | attribute | The instrument's home exchange key (e.g. `NYSE`, `LSE`), `null` for FX pairs/rates with no single exchange |
+| `currency` | attribute | The instrument's quote currency |
+| `asset_type` | attribute | `Index`, `FX`, `Commodity`, or `Rate` |
+| `is_future` | attribute | Whether the state is currently showing the paired futures instrument instead of spot |
 
 ## Support & Disclaimer
 

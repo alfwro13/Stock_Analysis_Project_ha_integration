@@ -19,6 +19,7 @@ from .const import (
     CONF_SHOW_ACCOUNTS,
     CONF_SHOW_HOLDINGS,
     CONF_SHOW_MARKET_HEALTH,
+    CONF_SHOW_MARKETS,
     CONF_SHOW_OTHER_ACCOUNTS,
     CONF_SHOW_PORTFOLIO_TOTALS,
     CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED,
@@ -197,6 +198,17 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 if self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
                 else {}
             )
+
+            # Markets (Phase 6) needs live intraday price/session-status like the trading-data
+            # group above, but a global index registry spans every timezone (Asia/Europe/US/
+            # Commodities & FX) — the existing skip condition only checks US+UK, so it can't
+            # meaningfully cover "is anything in this registry live right now." Always fetched,
+            # same as other_accounts/market_regime/macro_conditions above.
+            markets = (
+                await self.api.get_markets()
+                if self.entry.data.get(CONF_SHOW_MARKETS, True)
+                else {"data": {"regions": []}}
+            )
         except StockAnalysisAuthError as err:
             raise ConfigEntryAuthFailed("Invalid API key") from err
         except StockAnalysisAPIError as err:
@@ -211,7 +223,17 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             "other_accounts": other_accounts,
             "market_regime": market_regime,
             "macro_conditions": macro_conditions,
+            "markets": markets,
         }
+
+    def market_tiles(self) -> list[dict]:
+        """Flatten every region's tiles from the last /api/markets fetch into one list —
+        the shared read path for both sensor discovery and value/attribute lookups."""
+        regions = (self.data or {}).get("markets", {}).get("data", {}).get("regions", []) or []
+        tiles: list[dict] = []
+        for region in regions:
+            tiles.extend(region.get("tiles", []) or [])
+        return tiles
 
     async def async_prune_orphans(self) -> None:
         """Remove entities and devices that no longer correspond to a valid unique_id."""
@@ -285,6 +307,13 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 f"sap_fear_greed_index_{entry_id}",
             })
 
+        show_markets = self.entry.data.get(CONF_SHOW_MARKETS, True)
+        valid_registry_tickers: set[str] = set()
+        if show_markets:
+            valid_registry_tickers = {tile["registry_ticker"] for tile in self.market_tiles()}
+        for registry_ticker in valid_registry_tickers:
+            valid_unique_ids.add(f"sap_market_index_{registry_ticker}_{entry_id}")
+
         for entity_entry in entries:
             if entity_entry.unique_id not in valid_unique_ids:
                 entity_registry.async_remove(entity_entry.entity_id)
@@ -300,6 +329,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         )
         if show_other_accounts:
             valid_device_ids.add(f"sap_other_accounts_{entry_id}")
+        if show_markets:
+            valid_device_ids.add(f"sap_markets_{entry_id}")
 
         for device_entry in dr.async_entries_for_config_entry(device_registry, entry_id):
             device_ids = {ident for domain, ident in device_entry.identifiers if domain == DOMAIN}

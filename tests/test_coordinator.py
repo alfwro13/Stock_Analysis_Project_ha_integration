@@ -329,6 +329,47 @@ async def test_show_market_health_disabled_skips_fetch(hass: HomeAssistant, mock
     await coordinator.async_shutdown()
 
 
+async def test_markets_not_skipped_when_markets_closed(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """Markets sensors need live intraday data like portfolio/account/holdings, but a global
+    index registry spans every timezone — the existing skip condition only checks US+UK, so it
+    can't meaningfully cover "is anything in this registry live right now." Fetched every tick
+    even when both US and UK markets are closed, the same way Other Accounts/Market Health are."""
+    await coordinator.async_refresh()
+    mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
+
+    markets_calls_before = mock_api.get_markets.call_count
+    await coordinator.async_refresh()
+    assert mock_api.get_markets.call_count == markets_calls_before + 1
+
+
+async def test_show_markets_disabled_skips_fetch(hass: HomeAssistant, mock_api) -> None:
+    """CONF_SHOW_MARKETS=False means the coordinator never awaits the markets fetch."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**SAMPLE_CONFIG, "show_markets": False})
+    entry.add_to_hass(hass)
+    coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["markets"] == {"data": {"regions": []}}
+    assert coordinator.market_tiles() == []
+    mock_api.get_markets.assert_not_awaited()
+
+    await coordinator.async_shutdown()
+
+
+async def test_market_tiles_flattens_all_regions(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator
+) -> None:
+    """market_tiles() flattens every region's tiles from the last /api/markets fetch into one
+    list, the shared read path for both sensor discovery and value lookups."""
+    await coordinator.async_refresh()
+    tiles = coordinator.market_tiles()
+    assert {t["registry_ticker"] for t in tiles} == {"^GSPC", "^FTSE"}
+
+
 async def test_refresh_button_flow_calls_trigger_then_refresh(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
 ) -> None:

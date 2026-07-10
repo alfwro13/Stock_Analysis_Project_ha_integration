@@ -263,6 +263,45 @@ SAMPLE_MACRO_CONDITIONS_EMPTY = {
     "fear_greed": {"value": None, "label": None, "as_of": None},
 }
 
+SAMPLE_MARKETS = {
+    "status": "success",
+    "data": {
+        "view": "dynamic",
+        "regions": [
+            {
+                "region": "US",
+                "state": "open",
+                "tiles": [
+                    {
+                        "ticker": "^GSPC", "registry_ticker": "^GSPC", "display_name": "US S&P 500",
+                        "region": "US", "exchange": "NYSE", "is_future": False,
+                        "price": 5645.20, "currency": "USD", "change_pts": 12.30, "change_pct": 0.22,
+                        "is_positive": True, "invert_color": False, "asset_type": "Index",
+                        "sentiment_score": 0.15, "market_state": "open", "is_stale": False,
+                        "stale_data": False, "needs_refresh": False, "sparkline": [],
+                    },
+                ],
+            },
+            {
+                "region": "Europe",
+                "state": "closed",
+                "tiles": [
+                    {
+                        "ticker": "^FTSE", "registry_ticker": "^FTSE", "display_name": "UK FTSE 100",
+                        "region": "Europe", "exchange": "LSE", "is_future": False,
+                        "price": 8210.55, "currency": "GBP", "change_pts": -5.10, "change_pct": -0.06,
+                        "is_positive": False, "invert_color": False, "asset_type": "Index",
+                        "sentiment_score": -0.05, "market_state": "closed", "is_stale": True,
+                        "stale_data": False, "needs_refresh": True, "sparkline": [],
+                    },
+                ],
+            },
+        ],
+    },
+}
+
+SAMPLE_MARKETS_EMPTY = {"status": "success", "data": {"view": "dynamic", "regions": []}}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -291,6 +330,7 @@ def mock_api():
     api.get_other_accounts = AsyncMock(return_value=SAMPLE_OTHER_ACCOUNTS)
     api.get_market_regime = AsyncMock(return_value=SAMPLE_MARKET_REGIME)
     api.get_macro_conditions = AsyncMock(return_value=SAMPLE_MACRO_CONDITIONS)
+    api.get_markets = AsyncMock(return_value=SAMPLE_MARKETS)
     api.set_holding_price_limit = AsyncMock(return_value={"status": "success"})
     api.trigger_refresh_now = AsyncMock(return_value={"status": "success"})
     api.close = AsyncMock()
