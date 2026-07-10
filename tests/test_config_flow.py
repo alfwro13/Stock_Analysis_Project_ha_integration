@@ -206,7 +206,9 @@ async def test_user_step_defaults_show_toggles_to_true(hass: HomeAssistant, mock
     assert result["data"].get("show_holdings", True) is True
     assert result["data"].get("show_other_accounts", True) is True
     assert result["data"].get("show_market_health", True) is True
-    assert result["data"].get("skip_refresh_when_markets_closed", True) is True
+    # Off by default: the backend already gates any live-price work on its own market-open/
+    # quote-settled checks, so there's no cost to polling on every tick regardless of market hours.
+    assert result["data"].get("skip_refresh_when_markets_closed", False) is False
 
 
 async def test_reconfigure_can_disable_show_accounts(

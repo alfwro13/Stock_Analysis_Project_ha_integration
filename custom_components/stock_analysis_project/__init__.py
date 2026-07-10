@@ -137,12 +137,15 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
     async def _async_update_data(self) -> dict:
-        """Fetch market status, then the rest of the data — unless both UK and US markets are
-        closed and there's already prior data to reuse, in which case the three market-price
-        dependent fetches (portfolio totals, account metrics, holdings) are skipped in favor of
-        the previous refresh's values, since prices can't have changed. Other Accounts
-        (Pension/House) and Market Health (Phase 5 — regime/macro/auction/sentiment) are never
-        skipped this way — neither's data is driven by live market prices."""
+        """Fetch market status, then the rest of the data. Every poll fetches
+        portfolio/account/holdings data regardless of market hours — the backend already gates
+        any actual Yahoo-price work behind its own market-open/quote-settled checks
+        (accounts_engine.tickers_needing_refresh()), so skipping the poll itself buys nothing and
+        only adds staleness: it was previously possible for these sensors to stay frozen at
+        whatever they were when markets last closed, missing anything the backend updated
+        overnight (e.g. the nightly Account Value Snapshot job). CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED
+        (default off) is kept only for anyone who wants fewer polls purely to reduce load on
+        their own server; it has no Yahoo-cost implication either way."""
         await self._async_load_state()
 
         try:
@@ -151,7 +154,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 self.data is not None
                 and not market_status.get("us_market_open")
                 and not market_status.get("uk_market_open")
-                and self.entry.data.get(CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, True)
+                and self.entry.data.get(CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, False)
             )
 
             if skip_trading_fetches:

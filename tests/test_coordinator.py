@@ -216,27 +216,27 @@ async def test_first_refresh_always_fetches_even_if_markets_closed(
     mock_api.get_other_accounts.assert_awaited_once()
 
 
-async def test_markets_closed_skips_trading_fetches_on_second_refresh(
+async def test_markets_closed_still_fetches_trading_data_by_default(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
 ) -> None:
-    """Once there's prior data, a refresh with both markets closed reuses the previous
-    portfolio/account/holdings data instead of re-fetching it — prices can't have changed.
-    Other Accounts is unaffected, since it isn't tied to stock market hours."""
+    """Default behavior (skip_refresh_when_markets_closed off): a refresh with both markets
+    closed still re-fetches portfolio/account/holdings data — the backend already gates any
+    actual Yahoo-price work behind its own market-open/quote-settled checks, so polling on every
+    tick regardless of market hours is what lets these sensors reflect anything the backend
+    updates overnight (e.g. the nightly Account Value Snapshot job) within one poll interval,
+    instead of staying frozen at whatever they were when markets last closed."""
     await coordinator.async_refresh()
     mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
 
     portfolio_calls_before = mock_api.get_portfolio_totals.call_count
     account_calls_before = mock_api.get_account_metrics.call_count
     holdings_calls_before = mock_api.get_holdings.call_count
-    other_calls_before = mock_api.get_other_accounts.call_count
 
     await coordinator.async_refresh()
 
-    assert mock_api.get_portfolio_totals.call_count == portfolio_calls_before
-    assert mock_api.get_account_metrics.call_count == account_calls_before
-    assert mock_api.get_holdings.call_count == holdings_calls_before
-    assert mock_api.get_other_accounts.call_count == other_calls_before + 1
-    assert coordinator.data["portfolio_totals"] == SAMPLE_PORTFOLIO_TOTALS
+    assert mock_api.get_portfolio_totals.call_count == portfolio_calls_before + 1
+    assert mock_api.get_account_metrics.call_count == account_calls_before + 1
+    assert mock_api.get_holdings.call_count == holdings_calls_before + 1
 
 
 async def test_markets_open_always_fetches_trading_data(
@@ -252,24 +252,29 @@ async def test_markets_open_always_fetches_trading_data(
     assert mock_api.get_portfolio_totals.call_count > calls_before
 
 
-async def test_skip_toggle_disabled_always_fetches_regardless_of_market_status(
+async def test_skip_toggle_enabled_reuses_previous_data_when_markets_closed(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """skip_refresh_when_markets_closed=False keeps fetching every tick even with both markets
-    closed."""
+    """skip_refresh_when_markets_closed=True (opt-in, off by default) reuses the previous
+    portfolio/account/holdings data instead of re-fetching once both markets are closed —
+    for anyone who wants fewer polls purely to reduce load on their own server. Other Accounts
+    is unaffected, since it isn't tied to stock market hours."""
     entry = MockConfigEntry(
-        domain=DOMAIN, data={**SAMPLE_CONFIG, "skip_refresh_when_markets_closed": False}
+        domain=DOMAIN, data={**SAMPLE_CONFIG, "skip_refresh_when_markets_closed": True}
     )
     entry.add_to_hass(hass)
     coordinator = StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
+    await coordinator.async_refresh()
     mock_api.get_market_status = AsyncMock(return_value=SAMPLE_MARKET_STATUS_CLOSED)
 
-    await coordinator.async_refresh()
-    calls_before = mock_api.get_portfolio_totals.call_count
+    portfolio_calls_before = mock_api.get_portfolio_totals.call_count
+    other_calls_before = mock_api.get_other_accounts.call_count
 
     await coordinator.async_refresh()
 
-    assert mock_api.get_portfolio_totals.call_count > calls_before
+    assert mock_api.get_portfolio_totals.call_count == portfolio_calls_before
+    assert mock_api.get_other_accounts.call_count == other_calls_before + 1
+    assert coordinator.data["portfolio_totals"] == SAMPLE_PORTFOLIO_TOTALS
     await coordinator.async_shutdown()
 
 
