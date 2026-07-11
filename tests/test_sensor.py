@@ -76,6 +76,41 @@ def _account_entities(registry: er.EntityRegistry, entry_id: str, accounts: list
     ]
 
 
+async def test_last_update_success_sensor_present_and_matches_coordinator(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """The Last Update Success diagnostic sensor is always created (unconditional, unlike every
+    other sensor group which is gated by a "Show ..." toggle) and reflects the coordinator's
+    last_success_time so a user can confirm polling is actually happening even when every other
+    fetched value has stayed identical across many polls."""
+    entry = await _setup(hass, mock_api, data=dict(
+        SAMPLE_CONFIG,
+        show_portfolio_totals=False,
+        show_accounts=False,
+        show_holdings=False,
+        show_other_accounts=False,
+        show_market_health=False,
+        show_markets=False,
+    ))
+    registry = er.async_get(hass)
+
+    entity = next(
+        (
+            e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+            if e.unique_id == f"sap_last_update_success_{entry.entry_id}"
+        ),
+        None,
+    )
+    assert entity is not None
+
+    state = hass.states.get(entity.entity_id)
+    assert state is not None
+    assert state.state != "unavailable"
+
+    coordinator = entry.runtime_data
+    assert coordinator.last_success_time is not None
+
+
 async def test_two_accounts_create_24_sensors_with_correct_unique_ids_and_devices(
     hass: HomeAssistant, mock_api
 ) -> None:

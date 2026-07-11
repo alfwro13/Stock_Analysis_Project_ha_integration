@@ -83,12 +83,20 @@ class StockAnalysisRefreshIntervalNumber(CoordinatorEntity, RestoreNumber):
         self._attr_native_value = config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last known value, falling back to the configured update interval."""
+        """Restore the last known value, falling back to the configured update interval.
+
+        Also re-applies the restored value to the coordinator's actual polling interval —
+        without this, the coordinator's timer silently reverts to CONF_UPDATE_INTERVAL (the
+        config-flow field) on every HA restart while this entity kept displaying whatever value
+        was last set here, so the displayed and effective intervals could disagree indefinitely
+        until the user happened to touch this entity again.
+        """
         await super().async_added_to_hass()
         if (last_data := await self.async_get_last_number_data()) is not None and last_data.native_value is not None:
             self._attr_native_value = last_data.native_value
         else:
             self._attr_native_value = self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        self.coordinator.sync_update_interval_from_restore(int(self._attr_native_value))
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the coordinator's polling interval and reschedule immediately."""

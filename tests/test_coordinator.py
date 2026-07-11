@@ -31,6 +31,25 @@ def coordinator(hass: HomeAssistant, mock_api) -> StockAnalysisDataUpdateCoordin
     return StockAnalysisDataUpdateCoordinator(hass, mock_api, 15, entry)
 
 
+async def test_successful_refresh_records_last_success_time(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator
+) -> None:
+    """A successful poll stamps last_success_time, independent of whether any value changed —
+    this is what lets a user distinguish "still polling, data just unchanged" from "stuck"."""
+    assert coordinator.last_success_time is None
+
+    before = dt_util.utcnow()
+    await coordinator.async_refresh()
+    after = dt_util.utcnow()
+
+    assert coordinator.last_success_time is not None
+    assert before <= coordinator.last_success_time <= after
+
+    first_success_time = coordinator.last_success_time
+    await coordinator.async_refresh()
+    assert coordinator.last_success_time >= first_success_time
+
+
 async def test_first_refresh_populates_all_fields(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator
 ) -> None:
@@ -71,6 +90,7 @@ async def test_api_error_marks_server_offline(
     assert coordinator.last_update_success is False
     # Coordinator keeps last-known data (None here, since this was the first refresh).
     assert coordinator.data is None
+    assert coordinator.last_success_time is None
 
 
 async def test_auth_error_raises_config_entry_auth_failed(
@@ -131,6 +151,23 @@ async def test_refresh_interval_change_reschedules(
     assert coordinator.api.get_portfolio_totals.call_count > call_count_before
 
     await coordinator.async_shutdown()
+
+
+async def test_sync_update_interval_from_restore_applies_without_forcing_refresh(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator
+) -> None:
+    """Restoring the Refresh Interval number entity's value must re-apply it to
+    coordinator.update_interval so the coordinator's actual timer matches what the entity
+    displays after a restart. Unlike async_set_update_interval, this must not trigger an extra
+    API call at every HA startup — it should apply lazily via the coordinator's own next
+    scheduled refresh."""
+    await coordinator.async_refresh()
+    call_count_before = coordinator.api.get_portfolio_totals.call_count
+
+    coordinator.sync_update_interval_from_restore(5)
+
+    assert coordinator.update_interval == timedelta(minutes=5)
+    assert coordinator.api.get_portfolio_totals.call_count == call_count_before
 
 
 async def test_disable_auto_refresh_suspends_timer(

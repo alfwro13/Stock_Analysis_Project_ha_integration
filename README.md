@@ -56,7 +56,7 @@ The setup form validates the connection live by calling the portfolio-totals end
 
 ## Entities
 
-Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts share one single "Other Accounts" device, 7 market-wide macro/sentiment sensors share one single "Market Health" device, and every tracked global index/commodity/FX/rate shares one single "Markets" device (all described below).
+Static entities are split across two devices under the config entry: **Stock Analysis Project Portfolio** (the ten portfolio-total sensors plus the auto-refresh controls) and **Stock Analysis Project Diagnostics** (the five diagnostic binary sensors, the Last Update Success sensor, and the prune button), linked together via Home Assistant's device hierarchy. Trading accounts and holdings each get their own dynamically-created device (see below); Pension/House accounts share one single "Other Accounts" device, 7 market-wide macro/sentiment sensors share one single "Market Health" device, and every tracked global index/commodity/FX/rate shares one single "Markets" device (all described below).
 
 ### Stock Analysis Project Portfolio (sensors)
 
@@ -82,10 +82,10 @@ The base currency for all monetary sensors is whatever the backend reports as th
 | Entity | Type | Description |
 |---|---|---|
 | Enable Auto Refresh | switch | Turn background polling on/off. Turning it off suspends the coordinator's timer entirely; turning it back on resumes polling immediately and persists across Home Assistant restarts. |
-| Refresh Interval | number | Change the polling interval (1-1440 minutes) at runtime — takes effect immediately, no restart needed. |
+| Refresh Interval | number | Change the polling interval (1-1440 minutes) at runtime — takes effect immediately, no restart needed. Its value survives Home Assistant restarts and is re-applied to the coordinator's actual timer on every restart, so the displayed interval and the interval actually being polled at can never silently disagree. This is the effective interval; the "update interval" field on the setup/Reconfigure form only sets the *initial* value the first time the integration is configured. |
 | Refresh Data | button | Triggers an immediate backend refresh (live prices + performance cache), waits for it to actually finish, then re-polls Home Assistant — so sensor values are updated as soon as the button press completes, not on some later poll. |
 
-### Stock Analysis Project Diagnostics (binary sensors + button)
+### Stock Analysis Project Diagnostics (binary sensors + sensor + button)
 
 | Entity | On means | Notes |
 |---|---|---|
@@ -94,6 +94,7 @@ The base currency for all monetary sensors is whatever the backend reports as th
 | US Market Open | The NYSE is currently in its trading session | device_class: window |
 | UK Market Open | The LSE is currently in its trading session | device_class: window |
 | System Status | **A problem has been detected** on the backend (inverted polarity — "on" means something is wrong, matching Home Assistant's convention for problem-style binary sensors) | no device_class |
+| Last Update Success | — | Timestamp of the coordinator's last successful poll (device_class: timestamp), unconditional (not gated by any "Show ..." toggle). Updates on **every** successful poll regardless of whether any fetched value changed — the direct way to confirm polling is still happening 24/7 (e.g. over a weekend, when most portfolio/account figures legitimately don't change and so their own "last changed" timestamps look frozen even though the integration is polling normally). |
 | Prune Orphaned Entities (button) | — | Removes any entities left behind in the Home Assistant entity registry that no longer correspond to a current sensor/entity from this integration — e.g. after an account is deleted on the backend, without waiting for the next restart/reconfigure. Safe to press at any time. |
 
 ### Per-Account Entities

@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -25,6 +25,7 @@ from .const import (
     CONF_SHOW_PORTFOLIO_TOTALS,
     account_device_info,
     account_holdings_device_info,
+    diagnostics_device_info,
     market_health_device_info,
     markets_device_info,
     other_accounts_device_info,
@@ -148,7 +149,7 @@ async def async_setup_entry(
     """Set up the Stock Analysis Project sensor platform."""
     coordinator = config_entry.runtime_data
 
-    entities: list[SensorEntity] = []
+    entities: list[SensorEntity] = [StockAnalysisLastUpdateSuccessSensor(coordinator, config_entry)]
     if config_entry.data.get(CONF_SHOW_PORTFOLIO_TOTALS, True):
         entities.extend(
             StockAnalysisMonetarySensor(coordinator, config_entry, key, name, field)
@@ -744,3 +745,29 @@ class StockAnalysisMarketIndexSensor(CoordinatorEntity, SensorEntity):
             # markets_engine.resolve_tile() — e.g. NYSE open means spot is active, futures isn't.
             attrs["is_active"] = inst.get("is_active")
         return attrs
+
+
+class StockAnalysisLastUpdateSuccessSensor(CoordinatorEntity, SensorEntity):
+    """Timestamp of the coordinator's last successful poll, regardless of whether any fetched
+    value actually changed. Every other sensor's own HA "last changed" timestamp only moves when
+    its *value* differs from the previous poll — for slow-moving backend data (e.g. daily gain
+    figures over a weekend, when the backend has nothing new to compute) that makes a perfectly
+    healthy, continuously-polling integration look identical to a stuck one from the entity
+    history alone. This sensor is the direct way to tell those two situations apart."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Last Update Success"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: StockAnalysisDataUpdateCoordinator, config_entry: ConfigEntry) -> None:
+        """Initialize the last-update-success sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self._attr_unique_id = f"sap_last_update_success_{config_entry.entry_id}"
+        self._attr_device_info = diagnostics_device_info(config_entry)
+
+    @property
+    def native_value(self):
+        """Return the UTC timestamp of the last successful backend poll."""
+        return self.coordinator.last_success_time

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -11,6 +11,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import StockAnalysisAPI, StockAnalysisAPIError, StockAnalysisAuthError
 from .const import (
@@ -96,6 +97,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         self._store = Store(hass, 1, f"{DOMAIN}_state_{entry.entry_id}")
         self.auto_refresh_enabled = True
         self._state_loaded = False
+        self.last_success_time: datetime | None = None
 
     async def _async_load_state(self) -> None:
         """Load persisted coordinator state from HA storage, once."""
@@ -136,6 +138,14 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         """
         self.update_interval = timedelta(minutes=minutes)
         await self.async_request_refresh()
+
+    def sync_update_interval_from_restore(self, minutes: int) -> None:
+        """Apply a restored Refresh Interval number value to the live polling interval without
+        forcing an extra refresh at startup (unlike async_set_update_interval). Without this, the
+        Refresh Interval entity's restored display value silently disagreed with the interval
+        actually driving the coordinator's timer (which reverts to CONF_UPDATE_INTERVAL from the
+        config entry on every restart) until the user next touched the number entity."""
+        self.update_interval = timedelta(minutes=minutes)
 
     async def _async_update_data(self) -> dict:
         """Fetch market status, then the rest of the data. Every poll fetches
@@ -214,6 +224,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         except StockAnalysisAPIError as err:
             raise UpdateFailed(f"Stock Analysis Project API update failed: {err}") from err
 
+        self.last_success_time = dt_util.utcnow()
+
         return {
             "server_online": True,
             "portfolio_totals": portfolio_totals,
@@ -247,6 +259,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             f"sap_us_market_open_{entry_id}",
             f"sap_uk_market_open_{entry_id}",
             f"sap_system_status_{entry_id}",
+            f"sap_last_update_success_{entry_id}",
             f"sap_enable_auto_refresh_{entry_id}",
             f"sap_refresh_interval_{entry_id}",
             f"sap_refresh_data_{entry_id}",

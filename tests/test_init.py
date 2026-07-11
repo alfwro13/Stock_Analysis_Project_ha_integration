@@ -61,6 +61,7 @@ EXPECTED_UNIQUE_IDS = [
     "sap_us_market_open_{eid}",
     "sap_uk_market_open_{eid}",
     "sap_system_status_{eid}",
+    "sap_last_update_success_{eid}",
     "sap_enable_auto_refresh_{eid}",
     "sap_refresh_interval_{eid}",
     "sap_refresh_data_{eid}",
@@ -101,7 +102,7 @@ async def test_platform_entity_counts(hass: HomeAssistant, mock_api) -> None:
     for e in entries:
         by_platform[e.domain] = by_platform.get(e.domain, 0) + 1
 
-    assert by_platform.get("sensor") == 49  # 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts + 7 market health + 3 markets (S&P spot+future, FTSE)
+    assert by_platform.get("sensor") == 50  # 1 last update success + 10 portfolio + 24 account (2x12) + 3 holdings + 2 other accounts + 7 market health + 3 markets (S&P spot+future, FTSE)
     assert by_platform.get("binary_sensor") == 5
     assert by_platform.get("switch") == 1
     assert by_platform.get("number") == 7  # 1 refresh interval + 3 holdings x 2 limit numbers
