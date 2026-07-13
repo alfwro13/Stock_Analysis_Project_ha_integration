@@ -93,6 +93,29 @@ async def test_api_error_marks_server_offline(
     assert coordinator.last_success_time is None
 
 
+async def test_transient_error_on_subsequent_refresh_falls_back_to_last_known_data(
+    hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
+) -> None:
+    """A section that fails after a prior successful refresh must not take the whole
+    coordinator update down — it should serve its last-known value while every other section
+    (and last_update_success/last_success_time) keeps updating normally. Regression test for
+    sensors going unavailable en masse from one flaky endpoint even though the backend was
+    otherwise reachable."""
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.data["portfolio_totals"] == SAMPLE_PORTFOLIO_TOTALS
+    first_success_time = coordinator.last_success_time
+
+    mock_api.get_portfolio_totals = AsyncMock(side_effect=StockAnalysisAPIError("timed out"))
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["portfolio_totals"] == SAMPLE_PORTFOLIO_TOTALS
+    assert coordinator.data["market_status"] == SAMPLE_MARKET_STATUS
+    assert coordinator.last_success_time >= first_success_time
+
+
 async def test_auth_error_raises_config_entry_auth_failed(
     hass: HomeAssistant, coordinator: StockAnalysisDataUpdateCoordinator, mock_api
 ) -> None:

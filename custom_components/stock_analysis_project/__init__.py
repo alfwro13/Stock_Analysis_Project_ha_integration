@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -147,6 +148,23 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         config entry on every restart) until the user next touched the number entity."""
         self.update_interval = timedelta(minutes=minutes)
 
+    async def _fetch_section(self, key: str, coro) -> Any:
+        """Fetch one data section; on a transient API error (already retried with backoff
+        inside StockAnalysisAPI._get/_post), fall back to the last-known value for that section
+        instead of failing the whole update. Without this, one flaky endpoint — e.g. the backend
+        being momentarily slow while a heavy scheduled job (ML training, quant scan) runs — took
+        down every sensor in the integration even though the other fetches in this same cycle
+        would have succeeded and the backend itself was otherwise reachable. A section with no
+        prior data (the very first refresh) has nothing to fall back to, so the error still
+        propagates and fails config_entry_first_refresh, unchanged from before."""
+        try:
+            return await coro
+        except StockAnalysisAPIError as err:
+            if self.data is not None and key in self.data:
+                _LOGGER.warning("Failed to refresh %s, using last-known data: %s", key, err)
+                return self.data[key]
+            raise
+
     async def _async_update_data(self) -> dict:
         """Fetch market status, then the rest of the data. Every poll fetches
         portfolio/account/holdings data regardless of market hours — the backend already gates
@@ -160,7 +178,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         await self._async_load_state()
 
         try:
-            market_status = await self.api.get_market_status()
+            market_status = await self._fetch_section("market_status", self.api.get_market_status())
             skip_trading_fetches = (
                 self.data is not None
                 and not market_status.get("us_market_open")
@@ -174,23 +192,23 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
                 holdings = self.data["holdings"]
             else:
                 portfolio_totals = (
-                    await self.api.get_portfolio_totals()
+                    await self._fetch_section("portfolio_totals", self.api.get_portfolio_totals())
                     if self.entry.data.get(CONF_SHOW_PORTFOLIO_TOTALS, True)
                     else {}
                 )
                 account_metrics = (
-                    await self.api.get_account_metrics()
+                    await self._fetch_section("account_metrics", self.api.get_account_metrics())
                     if self.entry.data.get(CONF_SHOW_ACCOUNTS, True)
                     else {"base_currency": None, "accounts": []}
                 )
                 holdings = (
-                    await self.api.get_holdings()
+                    await self._fetch_section("holdings", self.api.get_holdings())
                     if self.entry.data.get(CONF_SHOW_HOLDINGS, True)
                     else {"base_currency": None, "holdings": []}
                 )
 
             other_accounts = (
-                await self.api.get_other_accounts()
+                await self._fetch_section("other_accounts", self.api.get_other_accounts())
                 if self.entry.data.get(CONF_SHOW_OTHER_ACCOUNTS, True)
                 else {"base_currency": None, "accounts": []}
             )
@@ -199,12 +217,12 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             # sentiment jobs), unrelated to intraday market-open status — never gated by
             # CONF_SKIP_REFRESH_WHEN_MARKETS_CLOSED, same reasoning as other_accounts above.
             market_regime = (
-                await self.api.get_market_regime()
+                await self._fetch_section("market_regime", self.api.get_market_regime())
                 if self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
                 else {"current": None, "last_change": None}
             )
             macro_conditions = (
-                await self.api.get_macro_conditions()
+                await self._fetch_section("macro_conditions", self.api.get_macro_conditions())
                 if self.entry.data.get(CONF_SHOW_MARKET_HEALTH, True)
                 else {}
             )
@@ -215,7 +233,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             # meaningfully cover "is anything in this registry live right now." Always fetched,
             # same as other_accounts/market_regime/macro_conditions above.
             markets = (
-                await self.api.get_markets()
+                await self._fetch_section("markets", self.api.get_markets())
                 if self.entry.data.get(CONF_SHOW_MARKETS, True)
                 else {"data": {"regions": []}}
             )
