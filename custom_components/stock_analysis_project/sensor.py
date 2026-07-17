@@ -225,7 +225,8 @@ async def async_setup_entry(
                 known_holding_ids.add(unique_id)
                 new_entities.append(
                     StockAnalysisHoldingSensor(
-                        coordinator, config_entry, h["account_id"], h["account_name"], h["ticker"]
+                        coordinator, config_entry, h["account_id"], h["account_name"], h["ticker"],
+                        h.get("company_name"),
                     )
                 )
         if new_entities:
@@ -424,8 +425,19 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
     """One sensor per (account, ticker) holding — state is market value in the portfolio's base
     currency, all other Ghostfolio-style fields plus RSI/trend/earnings/limits are exposed as
     attributes rather than as separate entities. Lives on the shared per-account Holdings device
-    alongside every other holding in that account, so the entity name is ticker-prefixed to stay
-    distinguishable from sibling holdings on the same device."""
+    alongside every other holding in that account, so the entity name is company-name-prefixed
+    (e.g. "ISA - Holdings Apple Inc.") to stay distinguishable from sibling holdings on the same
+    device. A bare, unprefixed name (just "Apple Inc.") was tried and found not achievable while
+    keeping this device grouping: Home Assistant's entity_registry.async_get_full_entity_name()
+    joins the device's name into the displayed friendly_name whenever the entity has a device_id,
+    regardless of has_entity_name — that flag only controls legacy prefix-*stripping* behavior,
+    not whether the device name gets suppressed (found 2026-07-17; the pre-existing
+    StockAnalysisOtherAccountSensor docstring's claim only actually holds for entity_id
+    derivation, not friendly_name — its own test asserts a substring, which would pass either
+    way). The real company name is still available as the `company_name` attribute for anything
+    that wants it without the device prefix. entity_id is explicitly assigned and keyed on
+    account_id+ticker (not company_name) so it stays a stable, collision-free identifier even if
+    Yahoo's company name for a ticker changes, or two tickers happen to share a display name."""
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -439,15 +451,17 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
         account_id: int,
         account_name: str,
         ticker: str,
+        company_name: str | None = None,
     ) -> None:
         """Initialize the per-holding sensor."""
         super().__init__(coordinator)
         self.config_entry = config_entry
         self._account_id = account_id
         self._ticker = ticker
-        self._attr_name = f"{ticker} Market Value"
+        self._attr_name = company_name or ticker
         self._attr_unique_id = f"sap_holding_market_value_{account_id}_{ticker}_{config_entry.entry_id}"
         self._attr_device_info = account_holdings_device_info(config_entry, account_id, account_name)
+        self.entity_id = f"sensor.holding_{account_id}_{slugify(ticker)}"
 
     @property
     def _holding(self) -> dict[str, Any]:
@@ -480,6 +494,7 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
             return {}
         return {
             "ticker": h.get("ticker"),
+            "company_name": h.get("company_name"),
             "account": h.get("account_name"),
             "number_of_shares": h.get("shares"),
             "currency_asset": h.get("currency_asset"),
@@ -499,6 +514,8 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
             "data_source": h.get("data_source"),
             "market_change_24h": h.get("market_change_24h"),
             "market_change_pct_24h": h.get("market_change_pct_24h"),
+            "pre_market_change_pct": h.get("pre_market_change_pct"),
+            "post_market_change_pct": h.get("post_market_change_pct"),
             "low_limit_set": h.get("low_limit_set"),
             "low_limit_reached": h.get("low_limit_reached"),
             "high_limit_set": h.get("high_limit_set"),

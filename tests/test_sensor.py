@@ -276,6 +276,52 @@ async def test_same_ticker_two_accounts_creates_two_separate_holdings_devices_no
     assert devices[0].id != devices[1].id
 
 
+async def test_same_ticker_two_accounts_shows_same_company_name_disambiguated_by_device(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Regression (2026-07-17): _attr_name is the company name (e.g. "Apple Inc."), so AAPL held
+    in both ISA and GIA legitimately shows the same company-name suffix on both entities' full
+    friendly_name — they're distinguished by the account-specific device prefix each is joined
+    with (Home Assistant always joins the device name in once a device is attached, regardless of
+    has_entity_name — a bare, unprefixed name isn't achievable while keeping the shared per-account
+    Holdings device), plus their own distinct entity_id/device_id."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    aapl_rows = [h for h in SAMPLE_HOLDINGS["holdings"] if h["ticker"] == "AAPL"]
+    entities = [
+        next(
+            e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+            if e.unique_id == _expected_holding_unique_id(entry.entry_id, h["account_id"], "AAPL")
+        )
+        for h in aapl_rows
+    ]
+    states = [hass.states.get(e.entity_id) for e in entities]
+
+    assert entities[0].entity_id != entities[1].entity_id
+    assert entities[0].device_id != entities[1].device_id
+    assert states[0].attributes.get("friendly_name") == "ISA - Holdings Apple Inc."
+    assert states[1].attributes.get("friendly_name") == "GIA - Holdings Apple Inc."
+    assert states[0].attributes.get("company_name") == "Apple Inc."
+    assert states[1].attributes.get("company_name") == "Apple Inc."
+
+
+async def test_holding_entity_id_is_deterministic_per_account_and_ticker(hass: HomeAssistant, mock_api) -> None:
+    """entity_id is explicitly assigned from account_id+ticker, not auto-derived from the
+    company-name-based _attr_name, so it stays stable even if Yahoo's company name for a ticker
+    changes later — matching the StockAnalysisOtherAccountSensor pattern of an explicit
+    entity_id assignment."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+
+    row = next(h for h in SAMPLE_HOLDINGS["holdings"] if h["ticker"] == "VWRL.L")
+    entity = next(
+        e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id == _expected_holding_unique_id(entry.entry_id, row["account_id"], "VWRL.L")
+    )
+    assert entity.entity_id == f"sensor.holding_{row['account_id']}_vwrl_l"
+
+
 async def test_holdings_in_same_account_share_one_holdings_device(hass: HomeAssistant, mock_api) -> None:
     """AAPL and VWRL.L, both held in GIA (sample fixture), must share the same Holdings device —
     the core requirement of this device-grouping redesign."""
@@ -297,8 +343,8 @@ async def test_holdings_in_same_account_share_one_holdings_device(hass: HomeAssi
 
     aapl_state = hass.states.get(aapl_entity.entity_id)
     vwrl_state = hass.states.get(vwrl_entity.entity_id)
-    assert aapl_state.attributes.get("friendly_name", "").endswith("AAPL Market Value")
-    assert vwrl_state.attributes.get("friendly_name", "").endswith("VWRL.L Market Value")
+    assert aapl_state.attributes.get("friendly_name") == "GIA - Holdings Apple Inc."
+    assert vwrl_state.attributes.get("friendly_name") == "GIA - Holdings Vanguard FTSE All-World"
 
 
 async def test_holding_sensor_value_matches_own_holding_not_other_account_same_ticker(
@@ -338,6 +384,7 @@ async def test_holding_sensor_attributes_match_ghostfolio_shape(hass: HomeAssist
     assert state is not None
     for key, expected in (
         ("ticker", row["ticker"]),
+        ("company_name", row["company_name"]),
         ("account", row["account_name"]),
         ("number_of_shares", row["shares"]),
         ("market_price", row["market_price"]),
@@ -348,6 +395,10 @@ async def test_holding_sensor_attributes_match_ghostfolio_shape(hass: HomeAssist
         ("trend_vs_buy", row["trend_vs_buy"]),
         ("asset_class", row["asset_class"]),
         ("data_source", row["data_source"]),
+        ("market_change_24h", row["market_change_24h"]),
+        ("market_change_pct_24h", row["market_change_pct_24h"]),
+        ("pre_market_change_pct", row["pre_market_change_pct"]),
+        ("post_market_change_pct", row["post_market_change_pct"]),
         ("rsi", row["rsi"]),
         ("trend_50d", row["trend_50d"]),
         ("trend_200d", row["trend_200d"]),
