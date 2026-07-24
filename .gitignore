@@ -26,3 +26,4 @@ stock_analysis_project.zip
 # Internal AI-agent working doc, local-only (like audit/ha_integration_task_prompt.md in the
 # main app repo) — not part of the published HACS repo
 task_prompt.md
+task_prompt_new.md
