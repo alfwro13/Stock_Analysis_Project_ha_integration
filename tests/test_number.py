@@ -291,11 +291,15 @@ async def test_holding_limit_number_manual_enable_of_never_set_entity_is_not_aut
     assert registry.async_get(entity.entity_id).disabled_by is None
 
 
-async def test_holding_limit_number_does_not_reenable_user_disabled_entity(
+async def test_holding_limit_number_reenables_entity_disabled_by_user(
     hass: HomeAssistant, mock_api
 ) -> None:
-    """A user-disabled entity (disabled_by == USER) is left alone even if the backend still
-    reports a target set — auto-enable only ever overrides our own INTEGRATION disable."""
+    """A manually-disabled entity (disabled_by == USER, e.g. from earlier ad-hoc testing in the
+    HA UI before this feature existed) still gets re-enabled once the backend reports a target
+    set — is_set is the single source of truth for enabled state, with no special-casing for how
+    the entity ended up disabled. An earlier version of this method respected a USER disable
+    forever, which meant auto-enable was permanently inert for any entity a user had ever
+    manually touched — reproduced and fixed after operator report."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
     row = SAMPLE_HOLDINGS["holdings"][0]
@@ -311,4 +315,4 @@ async def test_holding_limit_number_does_not_reenable_user_disabled_entity(
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
 
-    assert registry.async_get(entity.entity_id).disabled_by == er.RegistryEntryDisabler.USER
+    assert registry.async_get(entity.entity_id).disabled_by is None

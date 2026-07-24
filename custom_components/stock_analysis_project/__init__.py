@@ -265,22 +265,26 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         }
 
     def sync_holding_limit_enablement(self, unique_id: str, is_set: bool) -> None:
-        """Auto-enable a holding Low/High Limit number as soon as the backend reports a
-        target is set, and auto-disable it (at most once per UTC calendar day) once a target
-        that was previously set gets cleared.
+        """Keep a holding Low/High Limit number's HA registry enabled state mirroring whether
+        the backend actually has that target set, in both directions — deliberately with no
+        notion of "who last enabled/disabled it." An earlier version of this method only
+        auto-enabled an entity that was disabled_by == INTEGRATION (i.e. only ever touched an
+        entity it had disabled itself), to avoid overriding a manual HA-UI disable. In practice
+        that made auto-enable permanently inert for any entity that had ever been manually
+        toggled in the HA UI before this feature existed — which, on a long-running install, is
+        most of them — since a manually-enabled-then-disabled entity sits at disabled_by ==
+        USER forever, and no amount of setting a target on the backend would ever re-enable it.
+        Removed per explicit operator instruction after reproducing exactly this: is_set is now
+        the single source of truth for enabled state, full stop.
 
-        Two guards keep this from fighting a user's own choices in the HA UI:
-        - Enabling only ever flips disabled_by == INTEGRATION -> None (the state every such
-          entity is created with, since it's registered with enabled_registry_default=False).
-          A manual disable (disabled_by == USER) is left alone.
-        - Disabling only ever applies to a unique_id this method has itself seen reach
-          is_set=True at least once (self._holding_limit_ever_set). Without this, a user who
-          manually enables a never-set entity purely to set its first target from HA would get
-          it auto-disabled again on the very next sync, before they had a chance to enter a
-          value — since from the backend's point of view a not-yet-set target and an
-          already-cleared one look identical (is_set=False). Once a unique_id has genuinely had
-          a value, it's "ours" to manage going forward, including auto-disabling it after every
-          future clear.
+        The one remaining guard is self._holding_limit_ever_set: disabling only ever applies to
+        a unique_id this method has itself seen reach is_set=True at least once. Without this, a
+        user who manually enables a never-set entity purely to set its first target from HA
+        would get it auto-disabled again on the very next sync, before they had a chance to
+        enter a value — since from the backend's point of view a not-yet-set target and an
+        already-cleared one look identical (is_set=False). This guard is orthogonal to the
+        disabled_by distinction removed above: it doesn't care who enabled the entity, only
+        whether a value has ever actually existed for it.
 
         The daily cap on disabling exists purely to stop rapid set/clear/set/clear cycles from
         writing to the entity registry repeatedly in one day; enabling has no such cap since the
@@ -297,7 +301,7 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         if is_set:
             newly_tracked = unique_id not in self._holding_limit_ever_set
             self._holding_limit_ever_set.add(unique_id)
-            if entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+            if entry.disabled_by is not None:
                 entity_registry.async_update_entity(entity_id, disabled_by=None)
             if newly_tracked:
                 self.hass.async_create_task(self._save_state())
