@@ -1,6 +1,7 @@
 """Tests for number entities: Refresh Interval (Phase 1) and per-holding price limits (Phase 3)."""
 from __future__ import annotations
 
+import copy
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -188,3 +189,126 @@ async def test_holding_limit_number_native_value_defaults_to_zero_when_unset(
     state = hass.states.get(entity.entity_id)
     assert state is not None
     assert float(state.state) == 0
+
+
+async def test_holding_limit_number_auto_enables_when_target_set_on_backend(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A Low Limit number with a target already set on the backend stays disabled through the
+    entity's own creation cycle (registration isn't complete yet at that point) but is
+    auto-enabled by the very next coordinator sync, with no user action required."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "low_limit")
+    assert entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    entity = registry.async_get(entity.entity_id)
+    assert entity.disabled_by is None
+
+
+async def test_holding_limit_number_auto_disables_when_target_cleared_on_backend(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Once a target has been set (and the entity auto-enabled), clearing it on the backend
+    auto-disables the entity again on the next sync."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "low_limit")
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert registry.async_get(entity.entity_id).disabled_by is None
+
+    cleared_holdings = copy.deepcopy(SAMPLE_HOLDINGS)
+    cleared_holdings["holdings"][0]["low_limit"] = None
+    cleared_holdings["holdings"][0]["low_limit_set"] = False
+    mock_api.get_holdings.return_value = cleared_holdings
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert registry.async_get(entity.entity_id).disabled_by == er.RegistryEntryDisabler.INTEGRATION
+
+
+async def test_holding_limit_number_auto_disable_capped_at_once_per_day(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A set/clear/set/clear cycle within the same UTC day only auto-disables the entity once —
+    the second clear leaves it enabled rather than disabling it again."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "low_limit")
+
+    set_holdings = copy.deepcopy(SAMPLE_HOLDINGS)
+    cleared_holdings = copy.deepcopy(SAMPLE_HOLDINGS)
+    cleared_holdings["holdings"][0]["low_limit"] = None
+    cleared_holdings["holdings"][0]["low_limit_set"] = False
+
+    # First set -> enable, first clear -> disable (consumes today's one allowed disable).
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    mock_api.get_holdings.return_value = cleared_holdings
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert registry.async_get(entity.entity_id).disabled_by == er.RegistryEntryDisabler.INTEGRATION
+
+    # Second set -> re-enable (no cap on enabling).
+    mock_api.get_holdings.return_value = set_holdings
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert registry.async_get(entity.entity_id).disabled_by is None
+
+    # Second clear, same day -> capped, stays enabled.
+    mock_api.get_holdings.return_value = cleared_holdings
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert registry.async_get(entity.entity_id).disabled_by is None
+
+
+async def test_holding_limit_number_manual_enable_of_never_set_entity_is_not_auto_disabled(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """Manually enabling a Low/High Limit that has never had a backend value (e.g. to set its
+    first target from HA) must not be auto-disabled again on the next sync — only a unique_id
+    that has genuinely reached is_set=True at least once is ever auto-disabled."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    assert row["high_limit"] is None
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "high_limit")
+    registry.async_update_entity(entity.entity_id, disabled_by=None)
+    await hass.async_block_till_done()
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert registry.async_get(entity.entity_id).disabled_by is None
+
+
+async def test_holding_limit_number_does_not_reenable_user_disabled_entity(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A user-disabled entity (disabled_by == USER) is left alone even if the backend still
+    reports a target set — auto-enable only ever overrides our own INTEGRATION disable."""
+    entry = await _setup(hass, mock_api)
+    registry = er.async_get(hass)
+    row = SAMPLE_HOLDINGS["holdings"][0]
+    entity = _limit_entity(registry, entry.entry_id, row["account_id"], row["ticker"], "low_limit")
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert registry.async_get(entity.entity_id).disabled_by is None
+
+    registry.async_update_entity(entity.entity_id, disabled_by=er.RegistryEntryDisabler.USER)
+    await hass.async_block_till_done()
+
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert registry.async_get(entity.entity_id).disabled_by == er.RegistryEntryDisabler.USER

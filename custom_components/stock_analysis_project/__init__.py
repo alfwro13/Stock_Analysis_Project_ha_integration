@@ -99,6 +99,8 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         self.auto_refresh_enabled = True
         self._state_loaded = False
         self.last_success_time: datetime | None = None
+        self._holding_limit_last_disabled: dict[str, str] = {}
+        self._holding_limit_ever_set: set[str] = set()
 
     async def _async_load_state(self) -> None:
         """Load persisted coordinator state from HA storage, once."""
@@ -108,10 +110,16 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
         stored = await self._store.async_load()
         if stored:
             self.auto_refresh_enabled = stored.get("auto_refresh_enabled", True)
+            self._holding_limit_last_disabled = stored.get("holding_limit_last_disabled", {})
+            self._holding_limit_ever_set = set(stored.get("holding_limit_ever_set", []))
 
     async def _save_state(self) -> None:
         """Persist coordinator state to HA storage."""
-        await self._store.async_save({"auto_refresh_enabled": self.auto_refresh_enabled})
+        await self._store.async_save({
+            "auto_refresh_enabled": self.auto_refresh_enabled,
+            "holding_limit_last_disabled": self._holding_limit_last_disabled,
+            "holding_limit_ever_set": sorted(self._holding_limit_ever_set),
+        })
 
     def _schedule_refresh(self) -> None:
         """Override to suppress timer scheduling when auto-refresh is disabled."""
@@ -255,6 +263,56 @@ class StockAnalysisDataUpdateCoordinator(DataUpdateCoordinator):
             "macro_conditions": macro_conditions,
             "markets": markets,
         }
+
+    def sync_holding_limit_enablement(self, unique_id: str, is_set: bool) -> None:
+        """Auto-enable a holding Low/High Limit number as soon as the backend reports a
+        target is set, and auto-disable it (at most once per UTC calendar day) once a target
+        that was previously set gets cleared.
+
+        Two guards keep this from fighting a user's own choices in the HA UI:
+        - Enabling only ever flips disabled_by == INTEGRATION -> None (the state every such
+          entity is created with, since it's registered with enabled_registry_default=False).
+          A manual disable (disabled_by == USER) is left alone.
+        - Disabling only ever applies to a unique_id this method has itself seen reach
+          is_set=True at least once (self._holding_limit_ever_set). Without this, a user who
+          manually enables a never-set entity purely to set its first target from HA would get
+          it auto-disabled again on the very next sync, before they had a chance to enter a
+          value — since from the backend's point of view a not-yet-set target and an
+          already-cleared one look identical (is_set=False). Once a unique_id has genuinely had
+          a value, it's "ours" to manage going forward, including auto-disabling it after every
+          future clear.
+
+        The daily cap on disabling exists purely to stop rapid set/clear/set/clear cycles from
+        writing to the entity registry repeatedly in one day; enabling has no such cap since the
+        operator asked for it to happen as soon as the value is set.
+        """
+        entity_registry = er.async_get(self.hass)
+        entity_id = entity_registry.async_get_entity_id(Platform.NUMBER, DOMAIN, unique_id)
+        if entity_id is None:
+            return
+        entry = entity_registry.async_get(entity_id)
+        if entry is None:
+            return
+
+        if is_set:
+            newly_tracked = unique_id not in self._holding_limit_ever_set
+            self._holding_limit_ever_set.add(unique_id)
+            if entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+                entity_registry.async_update_entity(entity_id, disabled_by=None)
+            if newly_tracked:
+                self.hass.async_create_task(self._save_state())
+            return
+
+        if unique_id not in self._holding_limit_ever_set:
+            return
+        if entry.disabled_by is not None:
+            return
+        today = dt_util.utcnow().date().isoformat()
+        if self._holding_limit_last_disabled.get(unique_id) == today:
+            return
+        entity_registry.async_update_entity(entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+        self._holding_limit_last_disabled[unique_id] = today
+        self.hass.async_create_task(self._save_state())
 
     def market_tiles(self) -> list[dict]:
         """Flatten every region's tiles from the last /api/markets fetch into one list —

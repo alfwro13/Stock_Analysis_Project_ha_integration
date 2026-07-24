@@ -55,6 +55,11 @@ async def async_setup_entry(
                             coordinator, config_entry, account_id, account_name, ticker, limit_key, name
                         )
                     )
+                # A brand-new entity isn't registered yet at this point in the callback (entity
+                # registration from async_add_entities below completes asynchronously), so this
+                # no-ops for it and takes effect on the next coordinator poll instead — consistent
+                # with "enabling happens on next integration sync."
+                coordinator.sync_holding_limit_enablement(unique_id, bool(h.get(f"{limit_key}_set")))
         if new_entities:
             async_add_entities(new_entities)
 
@@ -119,7 +124,12 @@ class StockAnalysisHoldingLimitNumber(CoordinatorEntity, NumberEntity):
     Since a real Low/High Limit can never sensibly be 0 (a High Limit of 0 would fire immediately,
     as price is always >= 0), 0 — already the entity's native_min_value — doubles as the "clear
     this limit" sentinel in both directions: dragging the number down to 0 clears the backend
-    value, and a cleared/never-set backend value displays as 0 rather than "unknown"."""
+    value, and a cleared/never-set backend value displays as 0 rather than "unknown".
+
+    Created disabled by default (enabled_registry_default=False) and then auto-enabled/disabled
+    by the coordinator's sync_holding_limit_enablement() based on whether this (account, ticker,
+    direction) actually has a target set on the backend — see that method's docstring for the
+    full enable-immediately/disable-at-most-once-per-day rule and the manual-override guard."""
 
     _attr_has_entity_name = True
     _attr_entity_registry_enabled_default = False
