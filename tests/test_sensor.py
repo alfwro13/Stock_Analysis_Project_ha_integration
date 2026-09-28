@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -307,10 +309,7 @@ async def test_same_ticker_two_accounts_shows_same_company_name_disambiguated_by
 
 
 async def test_holding_entity_id_is_deterministic_per_account_and_ticker(hass: HomeAssistant, mock_api) -> None:
-    """entity_id is explicitly assigned from account_id+ticker, not auto-derived from the
-    company-name-based _attr_name, so it stays stable even if Yahoo's company name for a ticker
-    changes later — matching the StockAnalysisOtherAccountSensor pattern of an explicit
-    entity_id assignment."""
+    """New IDs use the account and ticker, independently of the company display name."""
     entry = await _setup(hass, mock_api)
     registry = er.async_get(hass)
 
@@ -319,7 +318,77 @@ async def test_holding_entity_id_is_deterministic_per_account_and_ticker(hass: H
         e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.unique_id == _expected_holding_unique_id(entry.entry_id, row["account_id"], "VWRL.L")
     )
-    assert entity.entity_id == f"sensor.holding_{row['account_id']}_vwrl_l"
+    assert entity.entity_id == "sensor.gia_holdings_vwrl_l_market_value"
+
+
+async def test_new_holding_discovered_on_refresh_uses_account_ticker_entity_id(
+    hass: HomeAssistant, mock_api
+) -> None:
+    """A holding bought after setup gets the requested ID on its first refresh."""
+    entry = await _setup(hass, mock_api)
+    holding = {
+        **SAMPLE_HOLDINGS["holdings"][0],
+        "account_id": 5,
+        "account_name": "JISA",
+        "ticker": "LLOY.L",
+        "company_name": "Lloyds Banking Group plc",
+    }
+    mock_api.get_holdings.return_value = {
+        **SAMPLE_HOLDINGS,
+        "holdings": [*SAMPLE_HOLDINGS["holdings"], holding],
+    }
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, _expected_holding_unique_id(entry.entry_id, 5, "LLOY.L")
+    )
+    assert entity_id == "sensor.jisa_holdings_lloy_l_market_value"
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["company_name"] == "Lloyds Banking Group plc"
+    device = dr.async_get(hass).async_get(registry.async_get(entity_id).device_id)
+    assert device.name == "JISA - Holdings"
+
+
+@pytest.mark.parametrize("saved_id", [
+    "sensor.holding_7_vwrl_l",
+    "sensor.gia_holdings_vwrl_l_market_value",
+    "sensor.my_custom_vanguard_holding",
+])
+async def test_holding_registered_id_survives_reload_and_name_changes(
+    hass: HomeAssistant, mock_api, saved_id: str
+) -> None:
+    """Existing and user-customized IDs keep their registry identity on upgrade."""
+    entry = MockConfigEntry(domain=DOMAIN, data=SAMPLE_CONFIG, title="Stock Analysis Project")
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    unique_id = _expected_holding_unique_id(entry.entry_id, 7, "VWRL.L")
+    registered = registry.async_get_or_create(
+        "sensor", DOMAIN, unique_id,
+        suggested_object_id=saved_id.removeprefix("sensor."),
+        config_entry=entry,
+    )
+    assert registered.entity_id == saved_id
+
+    with patch("custom_components.stock_analysis_project.StockAnalysisAPI", return_value=mock_api):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        mock_api.get_holdings.return_value = {
+            **SAMPLE_HOLDINGS,
+            "holdings": [
+                {**row, "account_name": "Renamed GIA", "company_name": "Renamed Company"}
+                if row["account_id"] == 7 else row
+                for row in SAMPLE_HOLDINGS["holdings"]
+            ],
+        }
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) == saved_id
+    assert registry.async_get(saved_id).id == registered.id
+    assert hass.states.get(saved_id) is not None
 
 
 async def test_holdings_in_same_account_share_one_holdings_device(hass: HomeAssistant, mock_api) -> None:

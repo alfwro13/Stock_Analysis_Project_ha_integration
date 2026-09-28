@@ -120,13 +120,15 @@ Entity removal (an account deleted on the backend, or a "Show ..." toggle turned
 
 ### Per-Holding Entities
 
-One **Holdings** device per Trading account, named **`<account name>` - Holdings**, linked via `via_device` to that account's own Totals device — so each account shows up as two devices: `<account name>` - Totals and `<account name>` - Holdings. Every holding in that account (ticker) contributes its entities onto this single shared device rather than getting a device of its own; entity names are ticker-prefixed (e.g. "AAPL Market Value", "AAPL Low Limit") so holdings stay distinguishable on the shared device. The same ticker held in two different accounts appears on both accounts' respective Holdings devices independently — never merged. Entities are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and both accounts' Holdings devices on the resulting reload.
+One **Holdings** device per Trading account, named **`<account name>` - Holdings**, linked via `via_device` to that account's own Totals device — so each account shows up as two devices: `<account name>` - Totals and `<account name>` - Holdings. Every holding in that account (ticker) contributes its entities onto this single shared device rather than getting a device of its own; market-value sensors display the company name (falling back to the ticker), while Low/High Limit numbers use the ticker (e.g. "AAPL Low Limit"). The same ticker held in two different accounts appears on both accounts' respective Holdings devices independently — never merged. Entities are created dynamically as holdings appear on the backend. Controlled by the **Show Holdings** config option (default on); disabling it via Reconfigure removes all holding entities and both accounts' Holdings devices on the resulting reload.
 
-Each holding has exactly one sensor — **`<ticker>` Market Value** (state = market value of that holding in that account, in the portfolio's base currency) — carrying every other data point as an attribute rather than as a separate entity:
+New market-value sensors use `sensor.<account_name>_holdings_<ticker>_market_value`, with names normalized for Home Assistant — for example, LLOY.L in JISA becomes `sensor.jisa_holdings_lloy_l_market_value`. The company display name does not affect this ID. Home Assistant preserves existing registered IDs, including custom names and older `sensor.holding_5_lloy_l` IDs. To correct an existing ID, edit its Entity ID in Home Assistant's entity settings and update any dashboards or automations that reference it. No deletion or re-creation is needed.
+
+Each holding has exactly one **Market Value** sensor (displayed using the company name; state = market value of that holding in that account, in the portfolio's base currency), carrying every other data point as an attribute rather than as a separate entity:
 
 | Attribute | Description |
 |---|---|
-| `ticker`, `account`, `number_of_shares` | Identity and position size |
+| `ticker`, `company_name`, `account`, `number_of_shares` | Identity and position size |
 | `currency_asset`, `currency_base` | The instrument's native currency vs. the portfolio's base currency |
 | `market_price`, `market_price_currency`, `market_price_in_base_currency` | Live price, in native currency and converted |
 | `average_buy_price`, `average_buy_price_currency` | Average cost basis (base currency) |

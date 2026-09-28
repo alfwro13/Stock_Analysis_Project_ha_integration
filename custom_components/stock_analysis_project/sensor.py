@@ -436,8 +436,9 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
     derivation, not friendly_name — its own test asserts a substring, which would pass either
     way). The real company name is still available as the `company_name` attribute for anything
     that wants it without the device prefix. entity_id is explicitly assigned and keyed on
-    account_id+ticker (not company_name) so it stays a stable, collision-free identifier even if
-    Yahoo's company name for a ticker changes, or two tickers happen to share a display name."""
+    account name+ticker (not company_name), with a market_value suffix. Home Assistant
+    preserves registered IDs on reload and resolves naming collisions; unique_id remains
+    keyed on account_id+ticker so account renames do not create a new entity."""
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -461,7 +462,7 @@ class StockAnalysisHoldingSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = company_name or ticker
         self._attr_unique_id = f"sap_holding_market_value_{account_id}_{ticker}_{config_entry.entry_id}"
         self._attr_device_info = account_holdings_device_info(config_entry, account_id, account_name)
-        self.entity_id = f"sensor.holding_{account_id}_{slugify(ticker)}"
+        self.entity_id = f"sensor.{slugify(account_name)}_holdings_{slugify(ticker)}_market_value"
 
     @property
     def _holding(self) -> dict[str, Any]:
