@@ -36,6 +36,7 @@ tests/
 ├── conftest.py           # Fixtures: mock config entry, mock API, sample payloads
 ├── test_config_flow.py
 ├── test_coordinator.py
+├── test_diagnostics.py
 ├── test_init.py
 ├── test_number.py
 └── test_sensor.py
@@ -117,7 +118,7 @@ All six phases have now shipped — `CONF_SHOW_PORTFOLIO_TOTALS` (Phase 1), `CON
 ## Key Architectural Decisions to Preserve
 
 ### X-API-Key Static-Header Auth (Not Token Exchange)
-Unlike `ghostfolio_ha_integration/`, which performs an anonymous-token-exchange dance (`POST /api/v1/auth/anonymous`) to obtain a bearer token, this integration authenticates with a single static `X-API-Key` header sent on every request (`api.py:_headers()`). This is simpler because the main Stock Analysis Project app's own auth middleware already validates a static API key globally across all `/api/*` routes for any caller that isn't using a session cookie — there is no per-session token to exchange or refresh, and no expiry to handle. `StockAnalysisAuthError` is raised on a 401 response and surfaces to the config flow as `auth_failed`, or to the coordinator as `ConfigEntryAuthFailed` (which prompts the user to reconfigure in HA's UI).
+Unlike `ghostfolio_ha_integration/`, which performs an anonymous-token-exchange dance (`POST /api/v1/auth/anonymous`) to obtain a bearer token, this integration authenticates with a single static `X-API-Key` header sent on every request (`api.py:_headers()`). This is simpler because the main Stock Analysis Project app's own auth middleware validates a static API key for any caller that isn't using a session cookie — there is no per-session token to exchange or refresh, and no expiry to handle. Since SEC 16/27 (2026-10-14) the backend accepts that key **only** on the routes in its `api_deps.API_KEY_ROUTES` (the endpoints listed under Cross-Reference below) and returns 403 on every other route, so a call to a new endpoint fails until the backend list is extended. The backend's `assets/api_reference.md` section **API key scope** has the steps. `StockAnalysisAuthError` is raised on a 401 response and surfaces to the config flow as `auth_failed`, or to the coordinator as `ConfigEntryAuthFailed` (which prompts the user to reconfigure in HA's UI).
 
 ### English-Only Strings
 See "Rules — Always Follow These" above. This is a deliberate, explicit divergence from `ghostfolio_ha_integration/`'s de/fr precedent, not an oversight.
@@ -216,7 +217,8 @@ Cross-reference: `tests/test_init.py::test_disabling_show_accounts_via_reload_au
 - [ ] If a new static entity: unique_id follows `sap_{key}_{entry_id}`, and the id is added to `async_prune_orphans()`'s `valid_unique_ids` set in `__init__.py`. If a new per-item dynamic entity set: follow "Dynamic Per-Item Entity Sets" above (unique_id/device scheme, `known_ids` + listener, id-based lookup) instead.
 - [ ] `README.md` updated to document the new feature/entity
 - [ ] `task_prompt.md` updated if the change advances or revises one of the phased milestones — this file is local-only and gitignored from this repo, see "Repository & CI" below
-- [ ] Checked against the main app's `AGENTS.md` and the 4 HA-integration-consumed endpoints (see Cross-Reference below) if the change assumes anything about the backend's response shape
+- [ ] Checked against the main app's `AGENTS.md` and the HA-integration-consumed endpoints (see Cross-Reference below) if the change assumes anything about the backend's response shape
+- [ ] If the change calls a backend endpoint not in the Cross-Reference list below: the main app's PR adds `(METHOD, path)` to `api_deps.API_KEY_ROUTES` and a row to the **API key scope** table in its `assets/api_reference.md`, and the endpoint is added to the Cross-Reference list below. Without it the call returns 403.
 - [ ] `pytest` run inside this directory and passing (see Testing below)
 
 ---
