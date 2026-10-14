@@ -97,6 +97,8 @@ The base currency for all monetary sensors is whatever the backend reports as th
 | Last Update Success | — | Timestamp of the coordinator's last successful poll (device_class: timestamp), unconditional (not gated by any "Show ..." toggle). Updates on **every** successful poll regardless of whether any fetched value changed — the direct way to confirm polling is still happening 24/7 (e.g. over a weekend, when most portfolio/account figures legitimately don't change and so their own "last changed" timestamps look frozen even though the integration is polling normally). |
 | Prune Orphaned Entities (button) | — | Removes any entities left behind in the Home Assistant entity registry that no longer correspond to a current sensor/entity from this integration — e.g. after an account is deleted on the backend, without waiting for the next restart/reconfigure. Safe to press at any time. |
 
+**Download diagnostics.** The file redacts the API key, the server address and the portfolio totals, so it is safe to attach to a GitHub issue. It keeps the market-open flags, the entity counts and whether the last poll succeeded.
+
 ### Per-Account Entities
 
 One device per Trading account, named **`<account name>` - Totals**, linked via `via_device` to the Stock Analysis Project Portfolio device. Sensors are created dynamically as accounts are added on the backend. Controlled by the **Show Account Totals** config option (default on); disabling it via Reconfigure removes all per-account sensors on the resulting reload.

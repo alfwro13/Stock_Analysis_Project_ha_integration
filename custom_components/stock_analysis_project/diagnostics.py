@@ -8,9 +8,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from . import StockAnalysisConfigEntry
-from .const import CONF_API_KEY
+from .const import CONF_API_KEY, CONF_BASE_URL
 
-TO_REDACT = {CONF_API_KEY}
+TO_REDACT = {CONF_API_KEY, CONF_BASE_URL}
+TO_REDACT_COORDINATOR = {"portfolio_totals"}
 
 
 async def async_get_config_entry_diagnostics(
@@ -23,13 +24,16 @@ async def async_get_config_entry_diagnostics(
     config = async_redact_data(dict(entry.data), TO_REDACT)
 
     data = coordinator.data or {}
-    coord_state: dict[str, Any] = {
-        "last_update_success": coordinator.last_update_success,
-        "auto_refresh_enabled": coordinator.auto_refresh_enabled,
-        "server_online": data.get("server_online", False),
-        "portfolio_totals": data.get("portfolio_totals", {}),
-        "market_status": data.get("market_status", {}),
-    }
+    coord_state: dict[str, Any] = async_redact_data(
+        {
+            "last_update_success": coordinator.last_update_success,
+            "auto_refresh_enabled": coordinator.auto_refresh_enabled,
+            "server_online": data.get("server_online", False),
+            "portfolio_totals": data.get("portfolio_totals", {}),
+            "market_status": data.get("market_status", {}),
+        },
+        TO_REDACT_COORDINATOR,
+    )
 
     registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(registry, entry.entry_id)
